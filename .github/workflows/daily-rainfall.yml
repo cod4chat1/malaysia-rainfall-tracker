@@ -29,6 +29,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: malaysia-rainfall-sheet
@@ -76,19 +77,102 @@ jobs:
         run: python -m rainfall_tracker.cli smoke --date "${{ inputs.smoke_date }}"
         env:
           PYTHONPATH: src
-      - name: Email daily update result
+      - name: Send GitHub completion alert
         if: >-
           always() &&
           (github.event_name == 'schedule' || inputs.mode == 'recent')
         continue-on-error: true
-        run: >-
-          python -m rainfall_tracker.notifications
-          --status "${{ job.status }}"
-          --summary rainfall-run.log
-          --repository "${{ github.repository }}"
-          --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        uses: actions/github-script@v7
         env:
-          PYTHONPATH: src
-          RAINFALL_EMAIL_FROM: ${{ secrets.RAINFALL_EMAIL_FROM }}
-          RAINFALL_EMAIL_APP_PASSWORD: ${{ secrets.RAINFALL_EMAIL_APP_PASSWORD }}
-          RAINFALL_EMAIL_TO: ${{ secrets.RAINFALL_EMAIL_TO }}
+          JOB_STATUS: ${{ job.status }}
+          SPREADSHEET_ID: ${{ secrets.GOOGLE_SPREADSHEET_ID }}
+        with:
+          script: |
+            const fs = require("fs");
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const succeeded = process.env.JOB_STATUS === "success";
+            const icon = succeeded ? "[OK]" : "[FAILED]";
+            const outcome = succeeded ? "completed successfully" : "failed";
+            const runUrl =
+              `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const sheetUrl =
+              `https://docs.google.com/spreadsheets/d/${process.env.SPREADSHEET_ID}/edit`;
+            const timestamp = new Intl.DateTimeFormat("en-CA", {
+              timeZone: "Asia/Kuala_Lumpur",
+              dateStyle: "medium",
+              timeStyle: "short",
+            }).format(new Date());
+
+            let summary = null;
+            if (fs.existsSync("rainfall-run.log")) {
+              const lines = fs.readFileSync("rainfall-run.log", "utf8")
+                .split(/\r?\n/)
+                .reverse();
+              for (const line of lines) {
+                try {
+                  const parsed = JSON.parse(line);
+                  if (parsed && typeof parsed.processed_dates !== "undefined") {
+                    summary = parsed;
+                    break;
+                  }
+                } catch {
+                  // Ignore ordinary non-JSON log lines.
+                }
+              }
+            }
+
+            const details = summary ? [
+              `- Requested dates: ${summary.requested_dates ?? 0}`,
+              `- Processed dates: ${summary.processed_dates ?? 0}`,
+              `- Rows written: ${summary.records ?? 0}`,
+              `- Source dates unavailable: ${summary.missing_dates ?? 0}`,
+              `- Dates already current/skipped: ${summary.skipped_dates ?? 0}`,
+            ] : ["- Run summary: unavailable; open the workflow for details"];
+
+            const body = [
+              `@${owner} The daily rainfall update **${outcome}**.`,
+              "",
+              `- Completed: ${timestamp} Malaysia time`,
+              ...details,
+              `- [Rainfall Google Sheet](${sheetUrl})`,
+              `- [Workflow run](${runUrl})`,
+            ].join("\n");
+
+            const label = "daily-update-alerts";
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: label });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.issues.createLabel({
+                owner,
+                repo,
+                name: label,
+                color: "1D76DB",
+                description: "Automated daily rainfall tracker notifications",
+              });
+            }
+
+            const existing = await github.rest.issues.listForRepo({
+              owner,
+              repo,
+              state: "open",
+              labels: label,
+              per_page: 1,
+            });
+            if (existing.data.length) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: existing.data[0].number,
+                body: `${icon} ${body}`,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner,
+                repo,
+                title: "Daily rainfall update alerts",
+                body: `${icon} ${body}\n\nKeep this issue open and subscribed to receive alerts.`,
+                labels: [label],
+              });
+            }
