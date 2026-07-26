@@ -4,7 +4,7 @@ Daily, state-level Malaysian rainfall from the free CHIRPS v3 dataset, compiled
 into Google Sheets by a scheduled GitHub Actions workflow.
 
 The project covers all 13 states and the federal territories of Kuala Lumpur,
-Putrajaya, and Labuan. Its default historical series begins on 2020-01-01 and
+Putrajaya, and Labuan. Its default historical series begins on 2013-01-01 and
 it replaces recent preliminary estimates with final values when CHIRPS
 publishes them.
 
@@ -69,13 +69,16 @@ The vendored administrative boundary is geoBoundaries
 - `Data_Quality`: execution outcomes and source availability
 - `Configuration`: schema, dataset, state ordering, and initialized date
 
-Rows are predetermined from 2020-01-01, with 16 rows per day. A rerun updates
+Rows are predetermined from 2013-01-01, with 16 rows per day. A rerun updates
 the same rows instead of appending duplicates.
 
 CHIRPS itself extends back to 1981. To maintain deterministic row identities,
-the calendar start is fixed when a Sheet is initialized. A separate archival
-Sheet can opt into 1981 by setting `RAINFALL_CALENDAR_START=1981-01-01` before
-initialization.
+the calendar start normally stays fixed after initialization. A separate
+archival Sheet can opt into 1981 by setting
+`RAINFALL_CALENDAR_START=1981-01-01` before initialization. An existing Sheet
+can safely move its start earlier with the `migrate-calendar-start` command,
+which prepends the required rows and updates the calendar configuration
+atomically.
 
 ## 1. Create the Google Sheet
 
@@ -180,13 +183,13 @@ Backfills are deliberately split into monthly batches:
 
 ```powershell
 .\.venv\Scripts\python.exe -m rainfall_tracker.cli backfill `
-  --start-date 2020-01-01 `
-  --end-date 2020-12-31
+  --start-date 2013-01-01 `
+  --end-date 2013-12-31
 ```
 
 Recommended order:
 
-1. Backfill 2020 through the latest completed year, one workflow run per year.
+1. Backfill 2013 through the latest completed year, one workflow run per year.
 2. Confirm the Sheet and monthly summaries.
 3. Let the scheduled workflow maintain the current year.
 
@@ -195,7 +198,7 @@ enter one year. The workflow safely processes at most two independent months
 at once, and splits each month into half-month passes so downloads remain under
 the safety cap. Each month can be retried independently. Do not launch
 overlapping years; the workflow concurrency lock serializes them. The default
-deployment rejects dates before 2020-01-01. For the current year, it stops at
+deployment rejects dates before 2013-01-01. For the current year, it stops at
 yesterday and skips future months automatically.
 
 ## 8. Daily automation
@@ -219,6 +222,7 @@ No new source data is a successful outcome, not an error.
 ```text
 rainfall-tracker build-weights
 rainfall-tracker init-sheet [--through YYYY-MM-DD]
+rainfall-tracker migrate-calendar-start
 rainfall-tracker run [--start-date DATE --end-date DATE] [--dry-run]
 rainfall-tracker backfill --start-date DATE --end-date DATE [--dry-run]
 rainfall-tracker smoke --date DATE

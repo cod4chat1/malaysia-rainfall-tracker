@@ -230,6 +230,132 @@ class SheetStore:
             if len(row) >= 2
         }
 
+    def calendar_start(self) -> date:
+        raw = self._read_config().get("calendar_start")
+        if not raw:
+            raise ValueError("Sheet calendar start is missing")
+        return date.fromisoformat(raw)
+
+    def migrate_calendar_start(self) -> bool:
+        response = self._execute(
+            self.service.spreadsheets()
+            .values()
+            .get(
+                spreadsheetId=self.spreadsheet_id,
+                range="Configuration!A2:B100",
+            )
+        )
+        config_rows = response.get("values", [])
+        config = {
+            row[0]: row[1]
+            for row in config_rows
+            if len(row) >= 2
+        }
+        raw_start = config.get("calendar_start")
+        raw_through = config.get("initialized_through")
+        if not raw_start or not raw_through:
+            raise ValueError("Sheet calendar configuration is incomplete")
+        previous_start = date.fromisoformat(raw_start)
+        initialized_through = date.fromisoformat(raw_through)
+        if previous_start == CALENDAR_START:
+            self.init_sheet(through=initialized_through)
+            return False
+        if previous_start < CALENDAR_START:
+            raise ValueError(
+                "Calendar migration cannot remove existing history: found "
+                f"{previous_start.isoformat()}, requested {CALENDAR_START.isoformat()}"
+            )
+        if (previous_start.month, previous_start.day) != (1, 1):
+            raise ValueError("Existing calendar start must be January 1")
+
+        day_count = (previous_start - CALENDAR_START).days
+        month_count = (
+            (previous_start.year - CALENDAR_START.year) * 12
+            + previous_start.month
+            - CALENDAR_START.month
+        )
+        metadata = self._metadata()
+        properties = {
+            sheet["properties"]["title"]: sheet["properties"]
+            for sheet in metadata.get("sheets", [])
+        }
+        required_tabs = {
+            "Daily_State_Rainfall",
+            "State_Daily_Matrix",
+            "Monthly_Summary",
+            "Configuration",
+        }
+        missing_tabs = required_tabs - properties.keys()
+        if missing_tabs:
+            raise ValueError(
+                "Required Sheet tabs are missing: " + ", ".join(sorted(missing_tabs))
+            )
+
+        calendar_row_offset = next(
+            (
+                index
+                for index, row in enumerate(config_rows)
+                if row and row[0] == "calendar_start"
+            ),
+            None,
+        )
+        if calendar_row_offset is None:
+            raise ValueError("Calendar start configuration row is missing")
+        calendar_grid_row = 1 + calendar_row_offset
+
+        requests = []
+        for title, inserted_rows in (
+            ("Daily_State_Rainfall", day_count * len(STATE_ORDER)),
+            ("State_Daily_Matrix", day_count),
+            ("Monthly_Summary", month_count * len(STATE_ORDER)),
+        ):
+            requests.append(
+                {
+                    "insertDimension": {
+                        "range": {
+                            "sheetId": properties[title]["sheetId"],
+                            "dimension": "ROWS",
+                            "startIndex": 1,
+                            "endIndex": 1 + inserted_rows,
+                        },
+                        "inheritFromBefore": False,
+                    }
+                }
+            )
+        requests.append(
+            {
+                "updateCells": {
+                    "range": {
+                        "sheetId": properties["Configuration"]["sheetId"],
+                        "startRowIndex": calendar_grid_row,
+                        "endRowIndex": calendar_grid_row + 1,
+                        "startColumnIndex": 1,
+                        "endColumnIndex": 2,
+                    },
+                    "rows": [
+                        {
+                            "values": [
+                                {
+                                    "userEnteredValue": {
+                                        "stringValue": CALENDAR_START.isoformat()
+                                    }
+                                }
+                            ]
+                        }
+                    ],
+                    "fields": "userEnteredValue",
+                }
+            }
+        )
+        self._execute(
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=self.spreadsheet_id,
+                body={"requests": requests},
+            )
+        )
+        self.init_sheet(through=initialized_through)
+        return True
+
     def validate_schema(self) -> dict[str, str]:
         config = self._read_config()
         if config.get("schema_version") != SCHEMA_VERSION:
