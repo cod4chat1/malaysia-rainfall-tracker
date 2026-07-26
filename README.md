@@ -192,7 +192,8 @@ Recommended order:
 
 In GitHub, open **Actions → Historical rainfall backfill → Run workflow** and
 enter one year. The workflow safely processes at most two independent months
-at once, so each job stays small and can be retried independently. Do not launch
+at once, and splits each month into half-month passes so downloads remain under
+the safety cap. Each month can be retried independently. Do not launch
 overlapping years; the workflow concurrency lock serializes them. The default
 deployment rejects dates before 2020-01-01. For the current year, it stops at
 yesterday and skips future months automatically.

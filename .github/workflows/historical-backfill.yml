@@ -90,6 +90,10 @@ jobs:
               print("skip=false", file=output)
               print(f"start={year:04d}-{month:02d}-01", file=output)
               print(f"end={year:04d}-{month:02d}-{last_day:02d}", file=output)
+              print(f"first_end={year:04d}-{month:02d}-{min(15, last_day):02d}", file=output)
+              print(f"has_second={'true' if last_day >= 16 else 'false'}", file=output)
+              if last_day >= 16:
+                  print(f"second_start={year:04d}-{month:02d}-16", file=output)
           PY
       - uses: actions/checkout@v4
         if: steps.dates.outputs.skip != 'true'
@@ -101,9 +105,17 @@ jobs:
       - name: Install
         if: steps.dates.outputs.skip != 'true'
         run: python -m pip install -r requirements.txt
-      - name: Backfill month
+      - name: Backfill days 1–15
         if: steps.dates.outputs.skip != 'true'
         run: >-
           python -m rainfall_tracker.cli backfill
           --start-date "${{ steps.dates.outputs.start }}"
+          --end-date "${{ steps.dates.outputs.first_end }}"
+      - name: Backfill days 16–end
+        if: >-
+          steps.dates.outputs.skip != 'true' &&
+          steps.dates.outputs.has_second == 'true'
+        run: >-
+          python -m rainfall_tracker.cli backfill
+          --start-date "${{ steps.dates.outputs.second_start }}"
           --end-date "${{ steps.dates.outputs.end }}"
