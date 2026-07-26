@@ -59,30 +59,50 @@ jobs:
       RAINFALL_MAX_SHEETS_REQUESTS: "50"
       PYTHONPATH: src
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-      - name: Install
-        run: python -m pip install -r requirements.txt
       - name: Calculate month dates
         id: dates
         shell: bash
         run: |
           python - <<'PY'
           import calendar
+          from datetime import date, timedelta
           import os
 
           year = int(os.environ["BACKFILL_YEAR"])
           month = int(os.environ["BACKFILL_MONTH"])
+          yesterday = date.today() - timedelta(days=1)
+
+          if year > yesterday.year or (
+              year == yesterday.year and month > yesterday.month
+          ):
+              with open(
+                  os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8"
+              ) as output:
+                  print("skip=true", file=output)
+              raise SystemExit
+
           last_day = calendar.monthrange(year, month)[1]
+          if year == yesterday.year and month == yesterday.month:
+              last_day = yesterday.day
+
           output_path = os.environ["GITHUB_OUTPUT"]
           with open(output_path, "a", encoding="utf-8") as output:
+              print("skip=false", file=output)
               print(f"start={year:04d}-{month:02d}-01", file=output)
               print(f"end={year:04d}-{month:02d}-{last_day:02d}", file=output)
           PY
+      - uses: actions/checkout@v4
+        if: steps.dates.outputs.skip != 'true'
+      - uses: actions/setup-python@v5
+        if: steps.dates.outputs.skip != 'true'
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        if: steps.dates.outputs.skip != 'true'
+        run: python -m pip install -r requirements.txt
       - name: Backfill month
+        if: steps.dates.outputs.skip != 'true'
         run: >-
           python -m rainfall_tracker.cli backfill
           --start-date "${{ steps.dates.outputs.start }}"
