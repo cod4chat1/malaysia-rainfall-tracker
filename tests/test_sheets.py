@@ -44,6 +44,67 @@ class FakeService:
         return self.spreadsheets_api
 
 
+class MigrationValues:
+    def get(self, **_kwargs):
+        return FakeRequest(
+            {
+                "values": [
+                    ["schema_version", "1"],
+                    ["calendar_start", "2020-01-01"],
+                    ["state_order", "|".join(STATE_ORDER)],
+                    ["dataset", "CHIRPS"],
+                    ["initialized_through", "2026-08-31"],
+                ]
+            }
+        )
+
+
+class MigrationSpreadsheets:
+    def __init__(self):
+        self.batch_bodies = []
+        self.values_api = MigrationValues()
+
+    def values(self):
+        return self.values_api
+
+    def get(self, **_kwargs):
+        titles = [
+            "Daily_State_Rainfall",
+            "State_Daily_Matrix",
+            "Monthly_Summary",
+            "Configuration",
+        ]
+        return FakeRequest(
+            {
+                "sheets": [
+                    {
+                        "properties": {
+                            "title": title,
+                            "sheetId": index + 1,
+                            "gridProperties": {
+                                "rowCount": 100,
+                                "columnCount": 20,
+                            },
+                        }
+                    }
+                    for index, title in enumerate(titles)
+                ]
+            }
+        )
+
+    def batchUpdate(self, **kwargs):
+        self.batch_bodies.append(kwargs["body"])
+        return FakeRequest()
+
+
+class MigrationService:
+    def __init__(self):
+        self.spreadsheets_api = MigrationSpreadsheets()
+
+    def spreadsheets(self):
+        return self.spreadsheets_api
+
+
 def test_write_records_builds_one_batched_daily_and_matrix_request():
     service = FakeService()
     store = SheetStore(service, "sheet-id")
@@ -74,3 +135,28 @@ def test_write_records_builds_one_batched_daily_and_matrix_request():
     assert len(body["data"]) == 2
     assert body["data"][0]["range"].startswith("Daily_State_Rainfall!")
     assert body["data"][1]["range"].startswith("State_Daily_Matrix!")
+
+
+def test_calendar_migration_prepends_rows_and_updates_config_atomically():
+    service = MigrationService()
+    store = SheetStore(service, "sheet-id")
+    initialized = []
+    store.init_sheet = lambda *, through=None: initialized.append(through)
+
+    assert store.migrate_calendar_start() is True
+
+    body = service.spreadsheets_api.batch_bodies[0]
+    requests = body["requests"]
+    assert len(requests) == 4
+    daily_insert = requests[0]["insertDimension"]["range"]
+    matrix_insert = requests[1]["insertDimension"]["range"]
+    monthly_insert = requests[2]["insertDimension"]["range"]
+    assert daily_insert["endIndex"] - daily_insert["startIndex"] == 2556 * 16
+    assert matrix_insert["endIndex"] - matrix_insert["startIndex"] == 2556
+    assert monthly_insert["endIndex"] - monthly_insert["startIndex"] == 84 * 16
+    config_update = requests[3]["updateCells"]
+    assert (
+        config_update["rows"][0]["values"][0]["userEnteredValue"]["stringValue"]
+        == "2013-01-01"
+    )
+    assert initialized == [date(2026, 8, 31)]

@@ -4,7 +4,7 @@ import os
 from datetime import date
 
 CHIRPS_SOURCE_START = date(1981, 1, 1)
-DEFAULT_CALENDAR_START = date(2020, 1, 1)
+DEFAULT_CALENDAR_START = date(2013, 1, 1)
 CALENDAR_START = date.fromisoformat(
     os.getenv("RAINFALL_CALENDAR_START", DEFAULT_CALENDAR_START.isoformat())
 )

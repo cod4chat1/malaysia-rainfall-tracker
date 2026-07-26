@@ -36,6 +36,11 @@ def _parser() -> argparse.ArgumentParser:
     init = sub.add_parser("init-sheet", help="Initialize Google Sheet tabs")
     init.add_argument("--through", type=_day)
 
+    sub.add_parser(
+        "migrate-calendar-start",
+        help="Safely prepend calendar rows when moving the configured start earlier",
+    )
+
     run = sub.add_parser("run", help="Process recent or explicit dates")
     run.add_argument("--start-date", type=_day)
     run.add_argument("--end-date", type=_day)
@@ -189,6 +194,16 @@ def main(argv: list[str] | None = None) -> int:
             store = SheetStore.from_env(max_requests=settings.max_sheets_requests)
             store.init_sheet(through=args.through)
             print(f"Sheet initialized using {store.request_count} API requests")
+            return 0
+        if args.command == "migrate-calendar-start":
+            store = SheetStore.from_env(max_requests=settings.max_sheets_requests)
+            changed = store.migrate_calendar_start()
+            action = "migrated" if changed else "already current"
+            print(
+                f"Sheet calendar is {action} at "
+                f"{store.calendar_start().isoformat()} using "
+                f"{store.request_count} API requests"
+            )
             return 0
         return _run(args, settings)
     except (RuntimeError, ValueError, OSError) as exc:

@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       year:
-        description: "Calendar year to load (2020 or later)"
+        description: "Calendar year to load (2013 or later)"
         required: true
-        default: "2020"
+        default: "2013"
         type: string
 
 permissions:
@@ -31,9 +31,9 @@ jobs:
           import os
 
           year = int(os.environ["BACKFILL_YEAR"])
-          if not 2020 <= year <= date.today().year:
+          if not 2013 <= year <= date.today().year:
               raise SystemExit(
-                  f"Year must be between 2020 and {date.today().year}."
+                  f"Year must be between 2013 and {date.today().year}."
               )
           print(f"Validated backfill year {year}.")
           PY
@@ -52,7 +52,7 @@ jobs:
       BACKFILL_MONTH: ${{ matrix.month }}
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
       GOOGLE_SPREADSHEET_ID: ${{ secrets.GOOGLE_SPREADSHEET_ID }}
-      RAINFALL_CALENDAR_START: "2020-01-01"
+      RAINFALL_CALENDAR_START: "2013-01-01"
       RAINFALL_MAX_DATES_PER_RUN: "31"
       RAINFALL_MAX_DOWNLOAD_BYTES: "50000000"
       RAINFALL_MAX_TOTAL_DOWNLOAD_BYTES: "250000000"

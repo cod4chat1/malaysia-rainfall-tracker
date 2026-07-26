@@ -7,7 +7,7 @@ Status: Approved design, pending written-spec review
 
 Build a zero-cost personal project that calculates daily rainfall statistics for
 Malaysia's 13 states and 3 federal territories, stores the results in Google
-Sheets, defaults to historical backfill from 2020-01-01, and updates
+Sheets, defaults to historical backfill from 2013-01-01, and updates
 automatically.
 
 The deployed workflow must not use an AI API, a paid weather API, a database
@@ -39,7 +39,7 @@ the README must explain how to verify the current limits.
 Use CHIRPS v3.0 daily `rnl` Final at 0.05-degree resolution as the canonical
 historical series. The source covers 1981 onward and uses ERA5 to disaggregate
 CHIRPS pentad totals into daily values. This project starts its default Sheet
-series at 2020-01-01.
+series at 2013-01-01.
 
 Final archive:
 
@@ -137,14 +137,16 @@ Columns:
 
 Rows use a fixed state ordering and deterministic positions: 16 consecutive
 rows per date beginning at the configured calendar start, which defaults to
-2020-01-01. `init-sheet` creates the date/state skeleton in bounded batches.
+2013-01-01. `init-sheet` creates the date/state skeleton in bounded batches.
 Therefore any date/state record can be updated directly without scanning the
 sheet, and reruns are idempotent.
 
-The calendar start is configurable only before a Sheet is initialized and is
-then immutable for that Sheet because it determines row identities. An optional
-pre-2020 archive remains possible by initializing a separate Sheet with
-1981-01-01 as its calendar start.
+The calendar start is stored in the Configuration tab so row identities remain
+deterministic. A new Sheet can choose an earlier start before initialization.
+An existing Sheet may move its start earlier only through the idempotent
+calendar migration, which atomically prepends rows and updates the
+configuration. A full archive remains possible by initializing a separate
+Sheet with 1981-01-01 as its calendar start.
 
 ### `State_Daily_Matrix`
 
@@ -190,7 +192,7 @@ write is detected on the next idempotent run and safely repeated.
 
 `backfill --start-date ... --end-date ...` accepts at most 366 days per
 invocation by default. GitHub's manual workflow exposes the same inputs.
-The normal initial history is run from 2020-01-01 in yearly batches. Dates
+The normal initial history is run from 2013-01-01 in yearly batches. Dates
 before the configured calendar start are rejected.
 
 ### Dry run
@@ -260,7 +262,7 @@ The README will provide exact steps for:
 - Repeating a date does not create duplicate rows.
 - Preliminary rows are replaced by Final rows without changing row identity.
 - A no-data day exits successfully and records the outcome.
-- The default Sheet rejects dates before 2020-01-01 without making changes.
+- The default Sheet rejects dates before 2013-01-01 without making changes.
 - Scheduled execution requires no paid source or recurring AI use.
 - No credential or downloaded raster is committed.
 - Setup instructions are sufficient for a hobbyist to deploy the project.

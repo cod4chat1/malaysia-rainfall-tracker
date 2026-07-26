@@ -7,16 +7,16 @@ from rainfall_tracker.records import daily_row, matrix_row, monthly_row
 
 
 def test_deterministic_rows():
-    assert daily_row(date(2020, 1, 1), STATE_ORDER[0]) == 2
-    assert daily_row(date(2020, 1, 1), STATE_ORDER[-1]) == 17
-    assert daily_row(date(2020, 1, 2), STATE_ORDER[0]) == 18
-    assert matrix_row(date(2020, 1, 1)) == 2
-    assert monthly_row(date(2020, 1, 1), STATE_ORDER[0]) == 2
-    assert monthly_row(date(2020, 2, 1), STATE_ORDER[0]) == 18
+    assert daily_row(date(2013, 1, 1), STATE_ORDER[0]) == 2
+    assert daily_row(date(2013, 1, 1), STATE_ORDER[-1]) == 17
+    assert daily_row(date(2013, 1, 2), STATE_ORDER[0]) == 18
+    assert matrix_row(date(2013, 1, 1)) == 2
+    assert monthly_row(date(2013, 1, 1), STATE_ORDER[0]) == 2
+    assert monthly_row(date(2013, 2, 1), STATE_ORDER[0]) == 18
 
 
 def test_rows_reject_invalid_inputs():
     with pytest.raises(ValueError):
-        daily_row(date(2019, 12, 31), "Johor")
+        daily_row(date(2012, 12, 31), "Johor")
     with pytest.raises(ValueError):
-        monthly_row(date(2020, 1, 2), "Johor")
+        monthly_row(date(2013, 1, 2), "Johor")
