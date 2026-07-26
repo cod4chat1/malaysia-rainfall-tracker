@@ -47,7 +47,7 @@ jobs:
       RAINFALL_MAX_TOTAL_DOWNLOAD_BYTES: "250000000"
       RAINFALL_MAX_SHEETS_REQUESTS: "50"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
