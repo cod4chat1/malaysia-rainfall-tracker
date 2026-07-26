@@ -19,6 +19,8 @@ def test_date_range_is_inclusive_and_bounded():
     assert days == [date(2025, 1, 1), date(2025, 1, 2), date(2025, 1, 3)]
     with pytest.raises(ValueError):
         date_range(date(2025, 1, 2), date(2025, 1, 1))
+    with pytest.raises(ValueError, match="predates this Sheet's calendar start"):
+        date_range(date(2019, 12, 31), date(2020, 1, 1))
 
 
 def test_default_range_ends_yesterday():

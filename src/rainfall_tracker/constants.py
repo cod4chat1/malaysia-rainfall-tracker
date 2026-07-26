@@ -1,8 +1,19 @@
 from __future__ import annotations
 
+import os
 from datetime import date
 
-CALENDAR_START = date(1981, 1, 1)
+CHIRPS_SOURCE_START = date(1981, 1, 1)
+DEFAULT_CALENDAR_START = date(2020, 1, 1)
+CALENDAR_START = date.fromisoformat(
+    os.getenv("RAINFALL_CALENDAR_START", DEFAULT_CALENDAR_START.isoformat())
+)
+if CALENDAR_START < CHIRPS_SOURCE_START:
+    raise ValueError(
+        f"RAINFALL_CALENDAR_START cannot predate {CHIRPS_SOURCE_START.isoformat()}"
+    )
+if (CALENDAR_START.month, CALENDAR_START.day) != (1, 1):
+    raise ValueError("RAINFALL_CALENDAR_START must be January 1")
 SCHEMA_VERSION = "1"
 
 STATE_ORDER = (
@@ -76,4 +87,3 @@ QUALITY_HEADERS = (
 )
 
 CONFIG_HEADERS = ("Key", "Value")
-

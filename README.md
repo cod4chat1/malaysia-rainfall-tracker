@@ -4,8 +4,9 @@ Daily, state-level Malaysian rainfall from the free CHIRPS v3 dataset, compiled
 into Google Sheets by a scheduled GitHub Actions workflow.
 
 The project covers all 13 states and the federal territories of Kuala Lumpur,
-Putrajaya, and Labuan. It supports historical backfill from 1981 and replaces
-recent preliminary estimates with final values when CHIRPS publishes them.
+Putrajaya, and Labuan. Its default historical series begins on 2020-01-01 and
+it replaces recent preliminary estimates with final values when CHIRPS
+publishes them.
 
 ## What it costs
 
@@ -68,8 +69,13 @@ The vendored administrative boundary is geoBoundaries
 - `Data_Quality`: execution outcomes and source availability
 - `Configuration`: schema, dataset, state ordering, and initialized date
 
-Rows are predetermined from 1981-01-01, with 16 rows per day. A rerun updates
+Rows are predetermined from 2020-01-01, with 16 rows per day. A rerun updates
 the same rows instead of appending duplicates.
+
+CHIRPS itself extends back to 1981. To maintain deterministic row identities,
+the calendar start is fixed when a Sheet is initialized. A separate archival
+Sheet can opt into 1981 by setting `RAINFALL_CALENDAR_START=1981-01-01` before
+initialization.
 
 ## 1. Create the Google Sheet
 
@@ -174,19 +180,20 @@ Backfills are deliberately limited to one year per command:
 
 ```powershell
 .\.venv\Scripts\python.exe -m rainfall_tracker.cli backfill `
-  --start-date 2001-01-01 `
-  --end-date 2001-12-31
+  --start-date 2020-01-01 `
+  --end-date 2020-12-31
 ```
 
 Recommended order:
 
-1. Backfill 2001 through the latest completed year, one workflow run per year.
+1. Backfill 2020 through the latest completed year, one workflow run per year.
 2. Confirm the Sheet and monthly summaries.
-3. Backfill 1981 through 2000, one year at a time.
+3. Let the scheduled workflow maintain the current year.
 
 In GitHub, open **Actions → Daily rainfall update → Run workflow**, select
 `backfill`, and enter a start and end date no more than 366 days apart. Do not
 launch overlapping years; the workflow concurrency lock serializes them.
+The default deployment rejects dates before 2020-01-01.
 
 ## 8. Daily automation
 

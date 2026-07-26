@@ -7,6 +7,7 @@ from typing import Protocol
 from .aggregate import aggregate_state
 from .catalog import CatalogClient, SourceAsset, should_process
 from .config import Settings
+from .constants import CALENDAR_START
 from .download import DownloadBudget, read_raster_window
 from .records import RainfallRecord
 from .weights import WeightSet
@@ -24,6 +25,11 @@ class PipelineResult:
 
 
 def date_range(start: date, end: date) -> list[date]:
+    if start < CALENDAR_START:
+        raise ValueError(
+            f"start date {start.isoformat()} predates this Sheet's calendar start "
+            f"{CALENDAR_START.isoformat()}"
+        )
     if end < start:
         raise ValueError("end date must not be before start date")
     return [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
@@ -107,4 +113,3 @@ def process_assets(
             raise RuntimeError(f"Expected 16 records for {asset.day}, found {len(daily)}")
         records.extend(daily)
     return tuple(records)
-

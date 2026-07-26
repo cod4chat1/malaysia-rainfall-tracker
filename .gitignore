@@ -12,4 +12,4 @@ credentials*.json
 service-account*.json
 work/cache/
 outputs/
-
+work/

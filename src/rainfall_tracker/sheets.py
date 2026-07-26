@@ -87,7 +87,9 @@ class SheetStore:
     def init_sheet(self, *, through: date | None = None) -> None:
         through = through or date.today()
         if through < CALENDAR_START:
-            raise ValueError("Sheet end date cannot predate 1981-01-01")
+            raise ValueError(
+                f"Sheet end date cannot predate {CALENDAR_START.isoformat()}"
+            )
         days = (through - CALENDAR_START).days + 1
         months = (through.year - CALENDAR_START.year) * 12 + through.month
         required = {
@@ -232,6 +234,12 @@ class SheetStore:
         config = self._read_config()
         if config.get("schema_version") != SCHEMA_VERSION:
             raise ValueError("Sheet schema is missing or incompatible; run init-sheet")
+        if config.get("calendar_start") != CALENDAR_START.isoformat():
+            raise ValueError(
+                "Sheet calendar start is incompatible: expected "
+                f"{CALENDAR_START.isoformat()}, found "
+                f"{config.get('calendar_start') or 'missing'}"
+            )
         if config.get("state_order") != "|".join(STATE_ORDER):
             raise ValueError("Sheet state order is incompatible")
         return config
