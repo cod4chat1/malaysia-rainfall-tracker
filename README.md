@@ -191,11 +191,11 @@ Recommended order:
 3. Let the scheduled workflow maintain the current year.
 
 In GitHub, open **Actions → Historical rainfall backfill → Run workflow** and
-enter one year. The workflow safely processes its 12 months one at a time, so
-each job stays small and can be retried independently. Do not launch overlapping
-years; the workflow concurrency lock serializes them. The default deployment
-rejects dates before 2020-01-01. For the current year, it stops at yesterday
-and skips future months automatically.
+enter one year. The workflow safely processes at most two independent months
+at once, so each job stays small and can be retried independently. Do not launch
+overlapping years; the workflow concurrency lock serializes them. The default
+deployment rejects dates before 2020-01-01. For the current year, it stops at
+yesterday and skips future months automatically.
 
 ## 8. Daily automation
 
