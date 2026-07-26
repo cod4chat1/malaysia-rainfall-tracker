@@ -217,6 +217,27 @@ The workflow:
 
 No new source data is a successful outcome, not an error.
 
+### Optional email notifications
+
+The daily workflow can send a free Gmail notification when new rainfall data is
+written, and when the workflow fails. Successful runs with no new CHIRPS source
+data do not send email by default.
+
+1. Turn on 2-Step Verification for the Gmail account that will send the email.
+2. Create a Google App Password for the rainfall tracker.
+3. In the GitHub repository, open **Settings → Secrets and variables →
+   Actions**.
+4. Add these repository secrets:
+
+   - `RAINFALL_EMAIL_FROM`: the sending Gmail address
+   - `RAINFALL_EMAIL_APP_PASSWORD`: the 16-character Google App Password
+   - `RAINFALL_EMAIL_TO`: the address that should receive notifications
+
+`RAINFALL_EMAIL_TO` may be the same address as `RAINFALL_EMAIL_FROM`. Never use
+the normal Google account password and never commit the App Password. Email
+delivery is deliberately non-blocking: a temporary Gmail problem does not undo
+or fail a rainfall update that was already written successfully.
+
 ## Commands
 
 ```text
