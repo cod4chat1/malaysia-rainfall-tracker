@@ -176,7 +176,7 @@ is published in pentad batches.
 
 ## 7. Historical backfill
 
-Backfills are deliberately limited to one year per command:
+Backfills are deliberately split into monthly batches:
 
 ```powershell
 .\.venv\Scripts\python.exe -m rainfall_tracker.cli backfill `
@@ -190,10 +190,11 @@ Recommended order:
 2. Confirm the Sheet and monthly summaries.
 3. Let the scheduled workflow maintain the current year.
 
-In GitHub, open **Actions → Daily rainfall update → Run workflow**, select
-`backfill`, and enter a start and end date no more than 366 days apart. Do not
-launch overlapping years; the workflow concurrency lock serializes them.
-The default deployment rejects dates before 2020-01-01.
+In GitHub, open **Actions → Historical rainfall backfill → Run workflow** and
+enter one year. The workflow safely processes its 12 months one at a time, so
+each job stays small and can be retried independently. Do not launch overlapping
+years; the workflow concurrency lock serializes them. The default deployment
+rejects dates before 2020-01-01.
 
 ## 8. Daily automation
 
