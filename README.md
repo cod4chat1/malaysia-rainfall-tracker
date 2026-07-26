@@ -217,6 +217,18 @@ The workflow:
 
 No new source data is a successful outcome, not an error.
 
+### Daily completion notifications
+
+The workflow keeps one open GitHub issue named `Daily rainfall update alerts`.
+Every scheduled or manually triggered `recent` run adds a comment that mentions
+the repository owner and reports success or failure, the rainfall rows written,
+and links to the Sheet and workflow run. GitHub delivers the mention through the
+owner's normal notification email settings.
+
+No Gmail password or additional notification secret is required. Keep the alert
+issue open and subscribed. Alert delivery is non-blocking, so a temporary GitHub
+notification problem cannot change the rainfall update result.
+
 ## Commands
 
 ```text
