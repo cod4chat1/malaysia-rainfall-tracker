@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "malaysia-rainfall-tracker"
+version = "0.1.0"
+description = "Zero-cost CHIRPS v3 rainfall aggregation for Malaysian states"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+dependencies = [
+  "google-api-python-client==2.176.0",
+  "google-auth==2.40.3",
+  "numpy==2.3.1",
+  "pyproj==3.7.1",
+  "rasterio==1.4.3",
+  "requests==2.32.4",
+  "shapely==2.1.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest==8.4.1",
+  "ruff==0.12.4",
+]
+
+[project.scripts]
+rainfall-tracker = "rainfall_tracker.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

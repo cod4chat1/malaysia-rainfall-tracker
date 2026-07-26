@@ -1,0 +1,76 @@
+from datetime import UTC, date, datetime
+
+from rainfall_tracker.constants import STATE_ORDER
+from rainfall_tracker.records import RainfallRecord
+from rainfall_tracker.sheets import SheetStore, column_letter
+
+
+def test_column_letters():
+    assert column_letter(1) == "A"
+    assert column_letter(26) == "Z"
+    assert column_letter(27) == "AA"
+
+
+class FakeRequest:
+    def __init__(self, result=None):
+        self.result = result or {}
+
+    def execute(self, **_kwargs):
+        return self.result
+
+
+class FakeValues:
+    def __init__(self):
+        self.batch_bodies = []
+
+    def batchUpdate(self, **kwargs):
+        self.batch_bodies.append(kwargs["body"])
+        return FakeRequest()
+
+
+class FakeSpreadsheets:
+    def __init__(self):
+        self.values_api = FakeValues()
+
+    def values(self):
+        return self.values_api
+
+
+class FakeService:
+    def __init__(self):
+        self.spreadsheets_api = FakeSpreadsheets()
+
+    def spreadsheets(self):
+        return self.spreadsheets_api
+
+
+def test_write_records_builds_one_batched_daily_and_matrix_request():
+    service = FakeService()
+    store = SheetStore(service, "sheet-id")
+    day = date(2025, 1, 1)
+    records = [
+        RainfallRecord(
+            day=day,
+            state=state,
+            average_mm=float(index),
+            median_mm=float(index),
+            maximum_mm=float(index),
+            area_above_1mm_pct=0.0,
+            area_above_10mm_pct=0.0,
+            area_above_20mm_pct=0.0,
+            area_above_50mm_pct=0.0,
+            valid_grid_cells=1,
+            valid_area_pct=100.0,
+            data_status="CHIRPS_V3_FINAL_RNL",
+            source_url="https://data.chc.ucsb.edu/example.cog",
+            processed_at_utc=datetime(2025, 1, 2, tzinfo=UTC),
+        )
+        for index, state in enumerate(STATE_ORDER)
+    ]
+    store.write_records(records)
+    assert store.request_count == 1
+    body = service.spreadsheets_api.values_api.batch_bodies[0]
+    assert body["valueInputOption"] == "RAW"
+    assert len(body["data"]) == 2
+    assert body["data"][0]["range"].startswith("Daily_State_Rainfall!")
+    assert body["data"][1]["range"].startswith("State_Daily_Matrix!")

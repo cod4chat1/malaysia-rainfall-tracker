@@ -68,8 +68,8 @@ never silently blended.
 ### 3.3 Boundaries
 
 Vendor a pinned Malaysia ADM1 GeoJSON from geoBoundaries `gbOpen`, with its
-release metadata and CC BY 4.0 attribution. Runtime jobs must not depend on the
-geoBoundaries API.
+release metadata and Open Data Commons Open Database License 1.0 attribution.
+Runtime jobs must not depend on the geoBoundaries API.
 
 The build must validate and normalize exactly these 16 areas:
 
