@@ -40,6 +40,10 @@ def _parser() -> argparse.ArgumentParser:
         "migrate-calendar-start",
         help="Safely prepend calendar rows when moving the configured start earlier",
     )
+    sub.add_parser(
+        "refresh-dashboard",
+        help="Create or refresh the Google Sheets rainfall dashboard",
+    )
 
     run = sub.add_parser("run", help="Process recent or explicit dates")
     run.add_argument("--start-date", type=_day)
@@ -119,6 +123,8 @@ def _run(args: argparse.Namespace, settings: Settings) -> int:
     elif store:
         store.write_records(records)
         store.rebuild_months({record.day.replace(day=1) for record in records})
+        if records:
+            store.refresh_dashboard()
         finished = datetime.now(UTC)
         records_by_day = {
             record.day: record.data_status
@@ -202,6 +208,15 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 f"Sheet calendar is {action} at "
                 f"{store.calendar_start().isoformat()} using "
+                f"{store.request_count} API requests"
+            )
+            return 0
+        if args.command == "refresh-dashboard":
+            store = SheetStore.from_env(max_requests=settings.max_sheets_requests)
+            snapshot = store.refresh_dashboard()
+            print(
+                "Dashboard refreshed through "
+                f"{snapshot.latest_date.isoformat()} using "
                 f"{store.request_count} API requests"
             )
             return 0

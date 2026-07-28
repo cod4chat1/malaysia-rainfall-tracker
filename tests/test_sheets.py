@@ -23,6 +23,19 @@ class FakeValues:
     def __init__(self):
         self.batch_bodies = []
 
+    def get(self, **_kwargs):
+        return FakeRequest(
+            {
+                "values": [
+                    ["Pahang"],
+                    ["Johor"],
+                    ["Sabah"],
+                    ["3 years"],
+                    ["Monthly"],
+                ]
+            }
+        )
+
     def batchUpdate(self, **kwargs):
         self.batch_bodies.append(kwargs["body"])
         return FakeRequest()
@@ -135,6 +148,23 @@ def test_write_records_builds_one_batched_daily_and_matrix_request():
     assert len(body["data"]) == 2
     assert body["data"][0]["range"].startswith("Daily_State_Rainfall!")
     assert body["data"][1]["range"].startswith("State_Daily_Matrix!")
+
+
+def test_dashboard_controls_are_preserved_and_formulas_use_cutoff():
+    store = SheetStore(FakeService(), "sheet-id")
+
+    assert store._dashboard_control_values() == [
+        "Pahang",
+        "Johor",
+        "Sabah",
+        "3 years",
+        "Monthly",
+    ]
+    formula_rows = store._dashboard_formula_rows()
+    formulas = str(formula_rows)
+    assert "Dashboard!$B$10" in formulas
+    assert "7-day moving average" in formulas
+    assert "30-day moving average" in formulas
 
 
 def test_calendar_migration_prepends_rows_and_updates_config_atomically():
