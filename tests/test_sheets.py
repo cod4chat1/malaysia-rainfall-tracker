@@ -166,6 +166,8 @@ def test_dashboard_controls_are_preserved_and_formulas_use_cutoff():
     assert "Dashboard!$B$10" in formulas
     assert "7-day moving average" in formulas
     assert "30-day moving average" in formulas
+    assert "=Dashboard!B4" in formulas
+    assert '=Dashboard!B4&" normal"' in formulas
 
     snapshot = DashboardSnapshot(
         latest_date=date(2026, 7, 20),
