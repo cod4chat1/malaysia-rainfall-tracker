@@ -1363,7 +1363,6 @@ class SheetStore:
         snapshot: DashboardSnapshot,
         controls: list[str],
     ) -> list[dict[str, object]]:
-        focus_col = _a1_column(DASHBOARD_FOCUS_START)
         focus_actual = _a1_column(DASHBOARD_FOCUS_START + 1)
         focus_ma7 = _a1_column(DASHBOARD_FOCUS_START + 2)
         focus_ma30 = _a1_column(DASHBOARD_FOCUS_START + 3)
@@ -1381,8 +1380,10 @@ class SheetStore:
             ["Frequency", controls[4]],
             [
                 "Latest valid date",
-                f'=LOOKUP(2,1/(Dashboard_Data!{focus_col}2:{focus_col}{last_daily}<>""),'
-                f'Dashboard_Data!{focus_col}2:{focus_col}{last_daily})',
+                (
+                    f"=DATE({snapshot.latest_date.year},{snapshot.latest_date.month},"
+                    f"{snapshot.latest_date.day})"
+                ),
             ],
             [
                 "Cutoff date",
