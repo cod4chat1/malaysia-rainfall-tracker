@@ -68,6 +68,9 @@ The vendored administrative boundary is geoBoundaries
 - `Monthly_Summary`: monthly statistics for each area
 - `Data_Quality`: execution outcomes and source availability
 - `Configuration`: schema, dataset, state ordering, and initialized date
+- `Dashboard`: interactive comparison, anomaly, moving-average, ranking, and
+  seasonal views
+- `Dashboard_Data`: hidden helper data and formulas used by the dashboard
 
 Rows are predetermined from 2013-01-01, with 16 rows per day. A rerun updates
 the same rows instead of appending duplicates.
@@ -213,17 +216,31 @@ The workflow:
 3. fills missing Preliminary dates
 4. replaces Preliminary with Final
 5. updates affected monthly summaries
-6. records the result in `Data_Quality`
+6. refreshes the dashboard when new rows are written
+7. records the result in `Data_Quality`
 
 No new source data is a successful outcome, not an error.
 
-### Daily completion notifications
+### Useful dashboard
+
+Use the dropdowns at the top of `Dashboard` to choose a focus state, two
+comparison states, a time period, and daily or monthly comparison frequency.
+The dashboard shows:
+
+- actual rainfall against 7-day and 30-day moving averages
+- up to three states on the same comparison chart
+- monthly rainfall against the same calendar month's historical normal
+- current state rankings and a 12-month state heatmap
+
+Selections are preserved when the automated refresh runs.
+
+### Email notifications
 
 The workflow keeps one open GitHub issue named `Daily rainfall update alerts`.
-Every scheduled or manually triggered `recent` run adds a comment that mentions
-the repository owner and reports success or failure, the rainfall rows written,
-and links to the Sheet and workflow run. GitHub delivers the mention through the
-owner's normal notification email settings.
+It comments and mentions the repository owner only when new rainfall rows were
+written or when the update failed. A successful run with no newly available
+CHIRPS data remains silent. GitHub sends the mention using the owner's normal
+notification email settings.
 
 No Gmail password or additional notification secret is required. Keep the alert
 issue open and subscribed. Alert delivery is non-blocking, so a temporary GitHub
@@ -238,6 +255,7 @@ rainfall-tracker migrate-calendar-start
 rainfall-tracker run [--start-date DATE --end-date DATE] [--dry-run]
 rainfall-tracker backfill --start-date DATE --end-date DATE [--dry-run]
 rainfall-tracker smoke --date DATE
+rainfall-tracker refresh-dashboard
 ```
 
 The same commands work as:

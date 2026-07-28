@@ -14,6 +14,7 @@ on:
           - recent
           - backfill
           - smoke
+          - dashboard
       start_date:
         description: "Backfill start date (YYYY-MM-DD)"
         required: false
@@ -77,6 +78,11 @@ jobs:
         run: python -m rainfall_tracker.cli smoke --date "${{ inputs.smoke_date }}"
         env:
           PYTHONPATH: src
+      - name: Refresh rainfall dashboard
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'dashboard'
+        run: python -m rainfall_tracker.cli refresh-dashboard
+        env:
+          PYTHONPATH: src
       - name: Send GitHub completion alert
         if: >-
           always() &&
@@ -120,6 +126,15 @@ jobs:
                   // Ignore ordinary non-JSON log lines.
                 }
               }
+            }
+
+            if (
+              succeeded &&
+              summary &&
+              Number(summary.processed_dates ?? 0) === 0
+            ) {
+              console.log("No new rainfall data; GitHub alert skipped.");
+              return;
             }
 
             const details = summary ? [
