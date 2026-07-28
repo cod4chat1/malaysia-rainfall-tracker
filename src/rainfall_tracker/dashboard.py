@@ -222,7 +222,7 @@ def build_dashboard_snapshot(
         "Rainy days",
         "Heavy-rain days",
         "Maximum daily mm",
-        "Latest area >20mm",
+        "Latest area >20mm %",
     ]
     ranking_rows: list[list[object]] = []
     for state in STATE_ORDER:

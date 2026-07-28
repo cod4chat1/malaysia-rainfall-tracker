@@ -942,6 +942,86 @@ class SheetStore:
                     "repeatCell": {
                         "range": {
                             "sheetId": dashboard_id,
+                            "startRowIndex": 8,
+                            "endRowIndex": 10,
+                            "startColumnIndex": 1,
+                            "endColumnIndex": 2,
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "numberFormat": {
+                                    "type": "DATE",
+                                    "pattern": "d mmm yyyy",
+                                }
+                            }
+                        },
+                        "fields": "userEnteredFormat.numberFormat",
+                    }
+                },
+                {
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": dashboard_id,
+                            "startRowIndex": 11,
+                            "endRowIndex": 12,
+                            "startColumnIndex": 0,
+                            "endColumnIndex": 11,
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "numberFormat": {
+                                    "type": "NUMBER",
+                                    "pattern": "0.00",
+                                }
+                            }
+                        },
+                        "fields": "userEnteredFormat.numberFormat",
+                    }
+                },
+                {
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": dashboard_id,
+                            "startRowIndex": 11,
+                            "endRowIndex": 12,
+                            "startColumnIndex": 8,
+                            "endColumnIndex": 9,
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "numberFormat": {
+                                    "type": "PERCENT",
+                                    "pattern": "0.0%",
+                                }
+                            }
+                        },
+                        "fields": "userEnteredFormat.numberFormat",
+                    }
+                },
+                {
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": dashboard_id,
+                            "startRowIndex": 11,
+                            "endRowIndex": 12,
+                            "startColumnIndex": 10,
+                            "endColumnIndex": 11,
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "numberFormat": {
+                                    "type": "NUMBER",
+                                    "pattern": "0",
+                                }
+                            }
+                        },
+                        "fields": "userEnteredFormat.numberFormat",
+                    }
+                },
+                {
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": dashboard_id,
                             "startRowIndex": 57,
                             "endRowIndex": 58,
                             "startColumnIndex": 0,
@@ -1321,7 +1401,7 @@ class SheetStore:
                     f"{_a1_column(DASHBOARD_COMPARE_START + 3)}2"
                 ),
                 "values": [
-                    ["Date", "State 1", "State 2", "State 3"],
+                    ["Date", "=Dashboard!B4", "=Dashboard!B5", "=Dashboard!B6"],
                     [comparison_formula],
                 ],
             },
@@ -1331,7 +1411,13 @@ class SheetStore:
                     f"{_a1_column(DASHBOARD_MONTH_CHART_START + 4)}2"
                 ),
                 "values": [
-                    ["Month", "State 1", "State 2", "State 3", "State 1 normal"],
+                    [
+                        "Month",
+                        "=Dashboard!B4",
+                        "=Dashboard!B5",
+                        "=Dashboard!B6",
+                        '=Dashboard!B4&" normal"',
+                    ],
                     [monthly_chart_formula],
                 ],
             },
