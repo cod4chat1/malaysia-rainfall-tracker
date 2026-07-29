@@ -2133,7 +2133,11 @@ class SheetStore:
             checked = value(row, column)
             if checked is True or str(checked).upper() == "TRUE":
                 detected.add(area)
-        if any(value(3 + index // 4, 4 + 2 * (index % 4)) != "" for index in range(19)):
+        has_v2_grid = all(
+            str(value(3 + index // 4, 3 + 2 * (index % 4))).strip() == area
+            for index, area in enumerate(ANALYSIS_ORDER)
+        )
+        if has_v2_grid:
             selected = detected
         return focus, period, frequency, selected
 
