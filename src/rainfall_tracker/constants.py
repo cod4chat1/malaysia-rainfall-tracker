@@ -35,6 +35,30 @@ STATE_ORDER = (
     "Labuan",
 )
 
+PENINSULAR_MEMBERS = (
+    "Johor",
+    "Kedah",
+    "Kelantan",
+    "Melaka",
+    "Negeri Sembilan",
+    "Pahang",
+    "Penang",
+    "Perak",
+    "Perlis",
+    "Selangor",
+    "Terengganu",
+    "Kuala Lumpur",
+    "Putrajaya",
+)
+EAST_MALAYSIA_MEMBERS = ("Sabah", "Sarawak", "Labuan")
+REGION_MEMBERS = {
+    "Peninsular Malaysia": PENINSULAR_MEMBERS,
+    "East Malaysia": EAST_MALAYSIA_MEMBERS,
+    "Malaysia": STATE_ORDER,
+}
+REGION_ORDER = tuple(REGION_MEMBERS)
+ANALYSIS_ORDER = (*STATE_ORDER, *REGION_ORDER)
+
 FEDERAL_TERRITORIES = frozenset({"Kuala Lumpur", "Putrajaya", "Labuan"})
 THRESHOLDS_MM = (1.0, 10.0, 20.0, 50.0)
 

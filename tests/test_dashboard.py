@@ -3,7 +3,7 @@ from datetime import date
 
 import pytest
 
-from rainfall_tracker.constants import STATE_ORDER
+from rainfall_tracker.constants import ANALYSIS_ORDER, STATE_ORDER
 from rainfall_tracker.dashboard import build_dashboard_snapshot, trailing
 
 
@@ -69,21 +69,33 @@ def test_snapshot_uses_latest_populated_date_and_builds_comparisons():
         [latest, state, "State", 1.0, 1.0, 2.0, 100.0, 20.0, index, 0.0]
         for index, state in enumerate(STATE_ORDER)
     ]
-    snapshot = build_dashboard_snapshot(_matrix(), _monthly(), detail)
+    snapshot = build_dashboard_snapshot(
+        _matrix(),
+        _monthly(),
+        detail,
+        state_areas={state: 1.0 for state in STATE_ORDER},
+    )
 
     assert snapshot.latest_date == date(2025, 2, 4)
     assert snapshot.daily_rows[-1][0] == latest
-    assert snapshot.daily_rows[-1][1 + 16 + 16] != ""
-    assert len(snapshot.ranking_rows) == 16
+    assert snapshot.daily_rows[-1][1 + 19 + 19] != ""
+    assert len(snapshot.ranking_rows) == 19
     johor = next(row for row in snapshot.ranking_rows if row[0] == "Johor")
-    assert johor[-1] == 0.0
-    assert snapshot.heatmap_headers == ["State", "2024-01", "2024-02", "2025-01"]
-    assert len(snapshot.heatmap_rows) == 16
+    assert johor[1] != ""
+    assert snapshot.heatmap_headers == ["Area", "2025-01"]
+    assert len(snapshot.heatmap_rows) == 19
+    assert snapshot.regional_headers[-1] == "Malaysia"
+    assert len(snapshot.map_rows) == 16
 
 
 def test_incomplete_month_is_not_used_for_seasonal_normal():
-    snapshot = build_dashboard_snapshot(_matrix(), _monthly(), [])
+    snapshot = build_dashboard_snapshot(
+        _matrix(),
+        _monthly(),
+        [],
+        state_areas={state: 1.0 for state in STATE_ORDER},
+    )
     february_row = next(row for row in snapshot.monthly_rows if row[0] == "2025-02-01")
-    johor_normal_index = 1 + len(STATE_ORDER)
-    assert february_row[johor_normal_index] == pytest.approx(120.0)
+    johor_normal_index = 1 + len(ANALYSIS_ORDER)
+    assert february_row[johor_normal_index] == ""
     assert february_row[-1] is False

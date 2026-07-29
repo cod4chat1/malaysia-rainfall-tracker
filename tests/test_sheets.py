@@ -1,6 +1,6 @@
 from datetime import UTC, date, datetime
 
-from rainfall_tracker.constants import STATE_ORDER
+from rainfall_tracker.constants import ANALYSIS_ORDER, STATE_ORDER
 from rainfall_tracker.dashboard import DashboardSnapshot
 from rainfall_tracker.records import RainfallRecord
 from rainfall_tracker.sheets import SheetStore, column_letter
@@ -184,6 +184,40 @@ def test_dashboard_controls_are_preserved_and_formulas_use_cutoff():
     latest_date_formula = dashboard[0]["values"][8][1]
     assert latest_date_formula == "=DATE(2026,7,20)"
     assert "Dashboard_Data" not in latest_date_formula
+
+
+def test_dashboard_v2_supports_all_areas_and_separates_anomaly_from_trend():
+    store = SheetStore(FakeService(), "sheet-id")
+    focus, period, frequency, selected = store._dashboard_v2_control_values()
+    assert (focus, period, frequency) == ("Malaysia", "1 year", "Daily")
+    assert {"Johor", "Peninsular Malaysia", "East Malaysia", "Malaysia"} <= selected
+
+    formulas = store._dashboard_v2_formula_rows()
+    comparison_headers = formulas[1]["values"][0]
+    assert len(comparison_headers) == 1 + len(ANALYSIS_ORDER)
+    assert "Malaysia Rolling30" in str(formulas)
+    assert "Dashboard!$B$9" in str(formulas)
+
+    snapshot = DashboardSnapshot(
+        latest_date=date(2026, 7, 20),
+        baseline_start_year=2013,
+        baseline_end_year=2025,
+        daily_headers=[],
+        daily_rows=[],
+        monthly_headers=[],
+        monthly_rows=[],
+        ranking_headers=[],
+        ranking_rows=[],
+        heatmap_headers=[],
+        heatmap_rows=[],
+    )
+    dashboard = store._dashboard_v2_main_values(
+        snapshot,
+        (focus, period, frequency, selected),
+    )
+    explanation = dashboard[2]["values"][0][0]
+    assert "Anomaly compares month-to-date" in explanation
+    assert "trend compares" in explanation
 
 
 def test_calendar_migration_prepends_rows_and_updates_config_atomically():

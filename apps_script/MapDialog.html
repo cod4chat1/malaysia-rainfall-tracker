@@ -1,0 +1,266 @@
+<!doctype html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Arial, sans-serif;
+        color: #0f172a;
+      }
+      body {
+        margin: 0;
+        background: #f8fafc;
+      }
+      .shell {
+        padding: 18px 22px 16px;
+      }
+      .topbar {
+        align-items: end;
+        display: flex;
+        gap: 24px;
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0 0 4px;
+      }
+      .subtitle, .hint {
+        color: #64748b;
+        font-size: 12px;
+      }
+      label {
+        color: #334155;
+        display: block;
+        font-size: 12px;
+        font-weight: 700;
+        margin-bottom: 4px;
+      }
+      select {
+        background: white;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        padding: 7px 30px 7px 9px;
+      }
+      .map-card {
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, .06);
+        min-height: 495px;
+        overflow: hidden;
+        position: relative;
+      }
+      svg {
+        display: block;
+        height: 470px;
+        width: 100%;
+      }
+      .state path {
+        cursor: pointer;
+        stroke: #fff;
+        stroke-linejoin: round;
+        stroke-width: 1.2;
+        transition: filter .12s ease, stroke-width .12s ease;
+      }
+      .state:hover path {
+        filter: brightness(.9);
+        stroke: #0f172a;
+        stroke-width: 2.2;
+      }
+      .tooltip {
+        background: rgba(15, 23, 42, .96);
+        border-radius: 8px;
+        color: white;
+        display: none;
+        font-size: 12px;
+        line-height: 1.45;
+        max-width: 255px;
+        padding: 10px 12px;
+        pointer-events: none;
+        position: absolute;
+        z-index: 3;
+      }
+      .tooltip strong {
+        display: block;
+        font-size: 14px;
+        margin-bottom: 5px;
+      }
+      .legend {
+        align-items: center;
+        display: flex;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .legend-bar {
+        background: linear-gradient(90deg, #eff6ff, #60a5fa, #1e3a8a);
+        border-radius: 4px;
+        height: 10px;
+        width: 220px;
+      }
+      .legend-labels {
+        color: #64748b;
+        display: flex;
+        font-size: 11px;
+        justify-content: space-between;
+        width: 220px;
+      }
+      .error {
+        color: #b91c1c;
+        font-weight: 700;
+        padding: 28px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <div class="topbar">
+        <div>
+          <h1>Rainfall conditions by state</h1>
+          <div class="subtitle" id="asOf">Loading latest rainfall data…</div>
+        </div>
+        <div>
+          <label for="metric">Colour states by</label>
+          <select id="metric">
+            <option value="mtd">Month-to-date rainfall</option>
+            <option value="anomaly">MTD anomaly</option>
+            <option value="trend">Recent trend</option>
+          </select>
+        </div>
+      </div>
+      <div class="map-card" id="mapCard">
+        <svg viewBox="0 0 960 420" role="img" aria-label="Malaysia rainfall map">
+          <?!= include('MapPaths'); ?>
+        </svg>
+        <div class="tooltip" id="tooltip"></div>
+      </div>
+      <div class="legend">
+        <div>
+          <div class="legend-bar" id="legendBar"></div>
+          <div class="legend-labels"><span id="legendLow">Low</span><span id="legendHigh">High</span></div>
+        </div>
+        <div class="hint">Hover over a state for MTD rainfall, anomaly, and the 7-day versus 30-day trend.</div>
+      </div>
+    </div>
+    <script>
+      const records = new Map();
+      const tooltip = document.getElementById('tooltip');
+      const metric = document.getElementById('metric');
+
+      function number(value) {
+        const parsed = Number(String(value).replace(/,/g, '').replace(/%$/, ''));
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+
+      function percentage(value) {
+        if (!value && value !== 0) return '—';
+        const decimal = percentNumber(value);
+        if (decimal === null) return '—';
+        return `${decimal >= 0 ? '+' : ''}${(decimal * 100).toFixed(1)}%`;
+      }
+
+      function percentNumber(value) {
+        const parsed = number(value);
+        if (parsed === null) return null;
+        return String(value).includes('%') ? parsed / 100 : parsed;
+      }
+
+      function mm(value) {
+        const parsed = number(value);
+        return parsed === null ? '—' : `${parsed.toFixed(1)} mm`;
+      }
+
+      function interpolate(a, b, amount) {
+        return `rgb(${a.map((value, index) =>
+          Math.round(value + (b[index] - value) * amount)).join(',')})`;
+      }
+
+      function applyColours() {
+        const mode = metric.value;
+        const mtdValues = [...records.values()]
+          .map(item => number(item['MTD rainfall mm']))
+          .filter(value => value !== null);
+        const maximum = Math.max(...mtdValues, 1);
+        document.querySelectorAll('.state').forEach(group => {
+          const item = records.get(group.dataset.state);
+          let colour = '#e2e8f0';
+          if (item && mode === 'mtd') {
+            const value = number(item['MTD rainfall mm']);
+            if (value !== null) {
+              colour = interpolate([239, 246, 255], [30, 58, 138], value / maximum);
+            }
+          } else if (item && mode === 'anomaly') {
+            const value = percentNumber(item['MTD anomaly']);
+            if (value !== null) {
+              const capped = Math.max(-.5, Math.min(.5, value));
+              colour = capped < 0
+                ? interpolate([194, 65, 12], [255, 247, 237], capped / .5 + 1)
+                : interpolate([239, 246, 255], [30, 64, 175], capped / .5);
+            }
+          } else if (item && mode === 'trend') {
+            colour = {
+              Rising: '#2563eb',
+              Stable: '#94a3b8',
+              Falling: '#ea580c',
+            }[item['Recent trend']] || '#e2e8f0';
+          }
+          group.querySelectorAll('path').forEach(path => path.setAttribute('fill', colour));
+        });
+        const bar = document.getElementById('legendBar');
+        const low = document.getElementById('legendLow');
+        const high = document.getElementById('legendHigh');
+        if (mode === 'mtd') {
+          bar.style.background = 'linear-gradient(90deg,#eff6ff,#60a5fa,#1e3a8a)';
+          low.textContent = 'Lower MTD';
+          high.textContent = 'Higher MTD';
+        } else if (mode === 'anomaly') {
+          bar.style.background = 'linear-gradient(90deg,#c2410c,#fff7ed,#eff6ff,#1e40af)';
+          low.textContent = 'Drier than norm';
+          high.textContent = 'Wetter than norm';
+        } else {
+          bar.style.background = 'linear-gradient(90deg,#ea580c 0 33%,#94a3b8 33% 66%,#2563eb 66%)';
+          low.textContent = 'Falling';
+          high.textContent = 'Rising';
+        }
+      }
+
+      function showTooltip(event, state) {
+        const item = records.get(state);
+        if (!item) return;
+        tooltip.innerHTML = `
+          <strong>${state}</strong>
+          MTD rainfall: ${mm(item['MTD rainfall mm'])}<br>
+          Expected MTD: ${mm(item['Expected MTD mm'])}<br>
+          MTD anomaly: ${percentage(item['MTD anomaly'])}<br>
+          7-day average: ${mm(item['7-day average mm'])}<br>
+          30-day average: ${mm(item['30-day average mm'])}<br>
+          Recent trend: ${item['Recent trend'] || '—'} (${percentage(item['Trend %'])})
+        `;
+        const card = document.getElementById('mapCard').getBoundingClientRect();
+        tooltip.style.display = 'block';
+        tooltip.style.left = `${Math.min(event.clientX - card.left + 14, card.width - 275)}px`;
+        tooltip.style.top = `${Math.max(event.clientY - card.top - 25, 10)}px`;
+      }
+
+      document.querySelectorAll('.state').forEach(group => {
+        group.addEventListener('mousemove', event => showTooltip(event, group.dataset.state));
+        group.addEventListener('mouseleave', () => tooltip.style.display = 'none');
+      });
+      metric.addEventListener('change', applyColours);
+
+      google.script.run
+        .withSuccessHandler(data => {
+          data.forEach(item => records.set(item.State, item));
+          document.getElementById('asOf').textContent =
+            `Latest valid rainfall date: ${data[0]?.['Latest date'] || 'unavailable'}`;
+          applyColours();
+        })
+        .withFailureHandler(error => {
+          document.getElementById('mapCard').innerHTML =
+            `<div class="error">${error.message || error}</div>`;
+        })
+        .getRainfallMapData();
+    </script>
+  </body>
+</html>

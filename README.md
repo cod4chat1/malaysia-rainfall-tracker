@@ -71,6 +71,10 @@ The vendored administrative boundary is geoBoundaries
 - `Dashboard`: interactive comparison, anomaly, moving-average, ranking, and
   seasonal views
 - `Dashboard_Data`: hidden helper data and formulas used by the dashboard
+- `Regional_Daily_Rainfall`: land-area-weighted Peninsular Malaysia, East
+  Malaysia, and Malaysia daily series
+- `Map_Data`: hidden latest-condition table used by the optional interactive
+  state map
 
 Rows are predetermined from 2013-01-01, with 16 rows per day. A rerun updates
 the same rows instead of appending duplicates.
@@ -223,16 +227,63 @@ No new source data is a successful outcome, not an error.
 
 ### Useful dashboard
 
-Use the dropdowns at the top of `Dashboard` to choose a focus state, two
-comparison states, a time period, and daily or monthly comparison frequency.
+Use the dropdowns at the top of `Dashboard` to choose one focus area, a time
+period, and daily or monthly comparison frequency. Use the 19 checkboxes to
+compare any number of states, territories, or the three regional aggregates.
+The default comparison is Johor, Sabah, Sarawak, Peninsular Malaysia, East
+Malaysia, and Malaysia. More than eight lines are allowed, although the chart
+shows a readability warning.
 The dashboard shows:
 
 - actual rainfall against 7-day and 30-day moving averages
-- up to three states on the same comparison chart
+- any checked areas on the same rolling-30 or monthly comparison chart
 - monthly rainfall against the same calendar month's historical normal
-- current state rankings and a 12-month state heatmap
+- current conditions and a 12-month heatmap for all 19 analysis areas
+- a separate MTD anomaly and recent rainfall trend, so a wet month can still
+  be identified as currently declining
 
 Selections are preserved when the automated refresh runs.
+
+Regional rainfall is weighted by effective land area from the same CHIRPS grid
+intersection weights used for state calculations. Peninsular Malaysia includes
+the 11 peninsula states plus Kuala Lumpur and Putrajaya. East Malaysia includes
+Sabah, Sarawak, and Labuan. A regional value is blank if any constituent area
+is missing.
+
+The seasonal baseline is January 2013 through December of the year before the
+latest dashboard date. Only complete historical months are used. The monthly
+seasonal normal is the mean of complete totals for the same calendar month.
+Expected MTD is the mean historical accumulation through the same day of that
+month; it is not a linear proration of a full-month normal.
+
+```text
+MTD anomaly = actual MTD / expected historical MTD - 1
+Recent trend = 7-day moving average / 30-day moving average - 1
+```
+
+Recent trend is `Rising` above +10%, `Falling` below -10%, and `Stable`
+between those thresholds. Moving calculations require consecutive calendar
+days; a missing source day makes the affected window blank.
+
+### Interactive Malaysia map
+
+The repository includes a bound Apps Script in `apps_script/`. Once installed
+in the rainfall spreadsheet, the `Rainfall Map` menu opens a free interactive
+SVG map. It can colour states by MTD rainfall, MTD anomaly, or recent trend.
+Hovering shows the latest date, MTD and expected MTD rainfall, anomaly, MA7,
+MA30, and trend.
+
+The map uses the vendored administrative boundary and the hidden `Map_Data`
+tab. It does not use Google Maps, a paid API, a runtime download, or another
+scheduler. Google asks for spreadsheet permission once when the bound script
+is first used. Removing the bound script and `Map_Data` tab removes the map
+without affecting rainfall collection or the dashboard.
+
+To regenerate the simplified map paths after changing the boundary:
+
+```text
+python tools/generate_map_asset.py
+```
 
 ### Email notifications
 
