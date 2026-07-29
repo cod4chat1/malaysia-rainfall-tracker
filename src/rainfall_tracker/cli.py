@@ -124,7 +124,7 @@ def _run(args: argparse.Namespace, settings: Settings) -> int:
         store.write_records(records)
         store.rebuild_months({record.day.replace(day=1) for record in records})
         if records:
-            store.refresh_dashboard()
+            store.refresh_dashboard(settings.weights_path)
         finished = datetime.now(UTC)
         records_by_day = {
             record.day: record.data_status
@@ -213,7 +213,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "refresh-dashboard":
             store = SheetStore.from_env(max_requests=settings.max_sheets_requests)
-            snapshot = store.refresh_dashboard()
+            snapshot = store.refresh_dashboard(settings.weights_path)
             print(
                 "Dashboard refreshed through "
                 f"{snapshot.latest_date.isoformat()} using "

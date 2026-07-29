@@ -4,6 +4,7 @@ import calendar
 from collections import defaultdict
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from google.oauth2.service_account import Credentials
@@ -11,6 +12,7 @@ from googleapiclient.discovery import build
 
 from .config import service_account_info_from_env, spreadsheet_id_from_env
 from .constants import (
+    ANALYSIS_ORDER,
     CALENDAR_START,
     CONFIG_HEADERS,
     DAILY_HEADERS,
@@ -22,18 +24,37 @@ from .constants import (
 )
 from .dashboard import DashboardSnapshot, build_dashboard_snapshot
 from .records import RainfallRecord, daily_row, matrix_row, monthly_row
+from .regions import load_state_effective_areas
 from .summaries import summarize_month
 
 SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
-DASHBOARD_MAX_DAILY_ROWS = 6000
-DASHBOARD_DAILY_COLUMNS = 65
-DASHBOARD_MONTHLY_START = 65
-DASHBOARD_FOCUS_START = 100
-DASHBOARD_COMPARE_START = 105
-DASHBOARD_MONTH_CHART_START = 110
-DASHBOARD_RANKING_START = 116
-DASHBOARD_HEATMAP_START = 124
-DASHBOARD_DATA_COLUMNS = 140
+DASHBOARD_MAX_DAILY_ROWS = 10000
+DASHBOARD_DAILY_COLUMNS = 77
+DASHBOARD_MONTHLY_START = 80
+DASHBOARD_FOCUS_START = 125
+DASHBOARD_COMPARE_START = 130
+DASHBOARD_MONTH_CHART_START = 151
+DASHBOARD_CURRENT_START = 155
+DASHBOARD_DATA_COLUMNS = 180
+
+_CHECKBOX_CELLS = tuple(
+    (
+        area,
+        f"{('D', 'F', 'H', 'J')[index % 4]}{4 + index // 4}",
+        f"{('E', 'G', 'I', 'K')[index % 4]}{4 + index // 4}",
+    )
+    for index, area in enumerate(ANALYSIS_ORDER)
+)
+_DEFAULT_SELECTED = frozenset(
+    {
+        "Johor",
+        "Sabah",
+        "Sarawak",
+        "Peninsular Malaysia",
+        "East Malaysia",
+        "Malaysia",
+    }
+)
 
 
 def column_letter(index: int) -> str:
@@ -1541,14 +1562,833 @@ class SheetStore:
             },
         ]
 
-    def refresh_dashboard(self) -> DashboardSnapshot:
-        self._ensure_dashboard_structure()
-        controls = self._dashboard_control_values()
+    def _dashboard_v2_metadata(self) -> dict[str, Any]:
+        return self._execute(
+            self.service.spreadsheets().get(
+                spreadsheetId=self.spreadsheet_id,
+                fields="sheets(properties,charts,conditionalFormats)",
+            )
+        )
+
+    def _ensure_dashboard_v2_structure(self) -> dict[str, dict[str, Any]]:
+        metadata = self._dashboard_v2_metadata()
+        sheets = {
+            item["properties"]["title"]: item
+            for item in metadata.get("sheets", [])
+        }
+        additions: list[dict[str, Any]] = []
+        specifications = {
+            "Dashboard": (100, 18, False),
+            "Dashboard_Data": (DASHBOARD_MAX_DAILY_ROWS + 1, DASHBOARD_DATA_COLUMNS, True),
+            "Regional_Daily_Rainfall": (DASHBOARD_MAX_DAILY_ROWS + 1, 4, False),
+            "Map_Data": (25, 10, True),
+        }
+        created_dashboard = "Dashboard" not in sheets
+        for title, (rows, columns, hidden) in specifications.items():
+            if title in sheets:
+                continue
+            properties: dict[str, Any] = {
+                "title": title,
+                "gridProperties": {
+                    "rowCount": rows,
+                    "columnCount": columns,
+                    "hideGridlines": title != "Regional_Daily_Rainfall",
+                },
+            }
+            if title == "Dashboard":
+                properties["index"] = 0
+            if hidden:
+                properties["hidden"] = True
+            additions.append({"addSheet": {"properties": properties}})
+        self._batch_update(additions)
+        if additions:
+            metadata = self._dashboard_v2_metadata()
+            sheets = {
+                item["properties"]["title"]: item
+                for item in metadata.get("sheets", [])
+            }
+
+        dashboard_id = sheets["Dashboard"]["properties"]["sheetId"]
+        data_id = sheets["Dashboard_Data"]["properties"]["sheetId"]
+        regional_id = sheets["Regional_Daily_Rainfall"]["properties"]["sheetId"]
+        map_id = sheets["Map_Data"]["properties"]["sheetId"]
+        requests: list[dict[str, Any]] = []
+        for title, sheet_id, rows, columns, hidden in (
+            ("Dashboard", dashboard_id, 100, 18, False),
+            (
+                "Dashboard_Data",
+                data_id,
+                DASHBOARD_MAX_DAILY_ROWS + 1,
+                DASHBOARD_DATA_COLUMNS,
+                True,
+            ),
+            (
+                "Regional_Daily_Rainfall",
+                regional_id,
+                DASHBOARD_MAX_DAILY_ROWS + 1,
+                4,
+                False,
+            ),
+            ("Map_Data", map_id, 25, 10, True),
+        ):
+            current = sheets[title]["properties"]["gridProperties"]
+            requests.append(
+                {
+                    "updateSheetProperties": {
+                        "properties": {
+                            "sheetId": sheet_id,
+                            "gridProperties": {
+                                "rowCount": max(rows, current["rowCount"]),
+                                "columnCount": max(columns, current["columnCount"]),
+                                "hideGridlines": title != "Regional_Daily_Rainfall",
+                                "frozenRowCount": 1,
+                            },
+                            "hidden": hidden,
+                            **({"index": 0} if title == "Dashboard" else {}),
+                        },
+                        "fields": (
+                            ("index," if title == "Dashboard" else "")
+                            + "hidden,gridProperties.rowCount,"
+                            "gridProperties.columnCount,gridProperties.hideGridlines,"
+                            "gridProperties.frozenRowCount"
+                        ),
+                    }
+                }
+            )
+        if created_dashboard:
+            requests.append(
+                {
+                    "mergeCells": {
+                        "range": {
+                            "sheetId": dashboard_id,
+                            "startRowIndex": 0,
+                            "endRowIndex": 1,
+                            "startColumnIndex": 0,
+                            "endColumnIndex": 18,
+                        },
+                        "mergeType": "MERGE_ALL",
+                    }
+                }
+            )
+
+        validations = (
+            (
+                3,
+                [
+                    {"userEnteredValue": area}
+                    for area in ANALYSIS_ORDER
+                ],
+            ),
+            (
+                4,
+                [
+                    {"userEnteredValue": value}
+                    for value in ("90 days", "180 days", "1 year", "3 years", "All")
+                ],
+            ),
+            (
+                5,
+                [
+                    {"userEnteredValue": value}
+                    for value in ("Daily", "Monthly")
+                ],
+            ),
+        )
+        for row, values in validations:
+            requests.append(
+                {
+                    "setDataValidation": {
+                        "range": {
+                            "sheetId": dashboard_id,
+                            "startRowIndex": row,
+                            "endRowIndex": row + 1,
+                            "startColumnIndex": 1,
+                            "endColumnIndex": 2,
+                        },
+                        "rule": {
+                            "condition": {"type": "ONE_OF_LIST", "values": values},
+                            "strict": True,
+                            "showCustomUi": True,
+                        },
+                    }
+                }
+            )
+        for _area, _label_cell, checkbox_cell in _CHECKBOX_CELLS:
+            column = ord(checkbox_cell[0]) - ord("A")
+            row = int(checkbox_cell[1:]) - 1
+            requests.append(
+                {
+                    "setDataValidation": {
+                        "range": {
+                            "sheetId": dashboard_id,
+                            "startRowIndex": row,
+                            "endRowIndex": row + 1,
+                            "startColumnIndex": column,
+                            "endColumnIndex": column + 1,
+                        },
+                        "rule": {
+                            "condition": {"type": "BOOLEAN"},
+                            "strict": True,
+                            "showCustomUi": True,
+                        },
+                    }
+                }
+            )
+
+        requests.extend(
+            [
+                {
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": dashboard_id,
+                            "startRowIndex": 0,
+                            "endRowIndex": 1,
+                            "startColumnIndex": 0,
+                            "endColumnIndex": 18,
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColorStyle": {"rgbColor": _rgb(243, 244, 246)},
+                                "textFormat": {
+                                    "bold": True,
+                                    "fontSize": 18,
+                                    "foregroundColorStyle": {
+                                        "rgbColor": _rgb(17, 24, 39)
+                                    },
+                                },
+                                "verticalAlignment": "MIDDLE",
+                            }
+                        },
+                        "fields": "userEnteredFormat",
+                    }
+                },
+                {
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": dashboard_id,
+                            "startRowIndex": 2,
+                            "endRowIndex": 9,
+                            "startColumnIndex": 0,
+                            "endColumnIndex": 2,
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColorStyle": {"rgbColor": _rgb(239, 246, 255)},
+                                "textFormat": {
+                                    "bold": True,
+                                    "foregroundColorStyle": {
+                                        "rgbColor": _rgb(30, 64, 175)
+                                    },
+                                },
+                            }
+                        },
+                        "fields": "userEnteredFormat",
+                    }
+                },
+                {
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": dashboard_id,
+                            "startRowIndex": 2,
+                            "endRowIndex": 8,
+                            "startColumnIndex": 3,
+                            "endColumnIndex": 11,
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColorStyle": {"rgbColor": _rgb(248, 250, 252)},
+                                "textFormat": {
+                                    "foregroundColorStyle": {
+                                        "rgbColor": _rgb(31, 41, 55)
+                                    }
+                                },
+                            }
+                        },
+                        "fields": "userEnteredFormat",
+                    }
+                },
+                {
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": dashboard_id,
+                            "startRowIndex": 10,
+                            "endRowIndex": 11,
+                            "startColumnIndex": 0,
+                            "endColumnIndex": 11,
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColorStyle": {"rgbColor": _rgb(229, 231, 235)},
+                                "horizontalAlignment": "CENTER",
+                                "textFormat": {"bold": True},
+                            }
+                        },
+                        "fields": "userEnteredFormat",
+                    }
+                },
+                {
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": dashboard_id,
+                            "startRowIndex": 11,
+                            "endRowIndex": 12,
+                            "startColumnIndex": 0,
+                            "endColumnIndex": 11,
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColorStyle": {"rgbColor": _rgb(248, 250, 252)},
+                                "horizontalAlignment": "CENTER",
+                                "textFormat": {"bold": True, "fontSize": 14},
+                            }
+                        },
+                        "fields": "userEnteredFormat",
+                    }
+                },
+                {
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": dashboard_id,
+                            "startRowIndex": 35,
+                            "endRowIndex": 36,
+                            "startColumnIndex": 9,
+                            "endColumnIndex": 17,
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColorStyle": {"rgbColor": _rgb(30, 64, 175)},
+                                "textFormat": {
+                                    "bold": True,
+                                    "foregroundColorStyle": {
+                                        "rgbColor": _rgb(255, 255, 255)
+                                    },
+                                },
+                            }
+                        },
+                        "fields": "userEnteredFormat",
+                    }
+                },
+                {
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": dashboard_id,
+                            "startRowIndex": 57,
+                            "endRowIndex": 58,
+                            "startColumnIndex": 0,
+                            "endColumnIndex": 13,
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColorStyle": {"rgbColor": _rgb(30, 64, 175)},
+                                "textFormat": {
+                                    "bold": True,
+                                    "foregroundColorStyle": {
+                                        "rgbColor": _rgb(255, 255, 255)
+                                    },
+                                },
+                            }
+                        },
+                        "fields": "userEnteredFormat",
+                    }
+                },
+                {
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": dashboard_id,
+                            "startRowIndex": 11,
+                            "endRowIndex": 12,
+                            "startColumnIndex": 8,
+                            "endColumnIndex": 9,
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "numberFormat": {"type": "PERCENT", "pattern": "0.0%"}
+                            }
+                        },
+                        "fields": "userEnteredFormat.numberFormat",
+                    }
+                },
+                {
+                    "updateDimensionProperties": {
+                        "range": {
+                            "sheetId": dashboard_id,
+                            "dimension": "COLUMNS",
+                            "startIndex": 0,
+                            "endIndex": 18,
+                        },
+                        "properties": {"pixelSize": 115},
+                        "fields": "pixelSize",
+                    }
+                },
+            ]
+        )
+
+        for index, rule in reversed(
+            list(enumerate(sheets["Dashboard"].get("conditionalFormats", [])))
+        ):
+            ranges = rule.get("ranges", [])
+            if any(
+                item.get("startRowIndex") == 58
+                and item.get("startColumnIndex") == 1
+                for item in ranges
+            ):
+                requests.append(
+                    {
+                        "deleteConditionalFormatRule": {
+                            "sheetId": dashboard_id,
+                            "index": index,
+                        }
+                    }
+                )
+        requests.append(
+            {
+                "addConditionalFormatRule": {
+                    "index": 0,
+                    "rule": {
+                        "ranges": [
+                            {
+                                "sheetId": dashboard_id,
+                                "startRowIndex": 58,
+                                "endRowIndex": 77,
+                                "startColumnIndex": 1,
+                                "endColumnIndex": 13,
+                            }
+                        ],
+                        "gradientRule": {
+                            "minpoint": {
+                                "colorStyle": {"rgbColor": _rgb(239, 246, 255)},
+                                "type": "MIN",
+                            },
+                            "midpoint": {
+                                "colorStyle": {"rgbColor": _rgb(96, 165, 250)},
+                                "type": "PERCENTILE",
+                                "value": "50",
+                            },
+                            "maxpoint": {
+                                "colorStyle": {"rgbColor": _rgb(30, 64, 175)},
+                                "type": "MAX",
+                            },
+                        },
+                    },
+                }
+            }
+        )
+
+        managed_titles = {
+            "Focus area: actual vs moving averages",
+            "Selected areas: rolling or monthly comparison",
+            "Monthly totals vs seasonal norm",
+            "Focus state: actual vs moving averages",
+            "Selected states: rolling or monthly comparison",
+        }
+        for chart in sheets["Dashboard"].get("charts", []):
+            if chart.get("spec", {}).get("title") in managed_titles:
+                requests.append(
+                    {"deleteEmbeddedObject": {"objectId": chart["chartId"]}}
+                )
+
+        chart_specs = (
+            (
+                "Focus area: actual vs moving averages",
+                DASHBOARD_FOCUS_START,
+                3,
+                13,
+                0,
+            ),
+            (
+                "Selected areas: rolling or monthly comparison",
+                DASHBOARD_COMPARE_START,
+                len(ANALYSIS_ORDER),
+                13,
+                9,
+            ),
+            (
+                "Monthly totals vs seasonal norm",
+                DASHBOARD_MONTH_CHART_START,
+                2,
+                35,
+                0,
+            ),
+        )
+        palette = (
+            _rgb(37, 99, 235),
+            _rgb(234, 88, 12),
+            _rgb(5, 150, 105),
+            _rgb(124, 58, 237),
+            _rgb(220, 38, 38),
+            _rgb(8, 145, 178),
+        )
+        for title, start_column, series_count, row_index, column_index in chart_specs:
+            series = [
+                {
+                    "series": {
+                        "sourceRange": {
+                            "sources": [
+                                {
+                                    "sheetId": data_id,
+                                    "startRowIndex": 0,
+                                    "endRowIndex": DASHBOARD_MAX_DAILY_ROWS + 1,
+                                    "startColumnIndex": start_column + offset,
+                                    "endColumnIndex": start_column + offset + 1,
+                                }
+                            ]
+                        }
+                    },
+                    "targetAxis": "LEFT_AXIS",
+                    "colorStyle": {"rgbColor": palette[(offset - 1) % len(palette)]},
+                }
+                for offset in range(1, series_count + 1)
+            ]
+            requests.append(
+                {
+                    "addChart": {
+                        "chart": {
+                            "spec": {
+                                "title": title,
+                                "fontName": "Arial",
+                                "basicChart": {
+                                    "chartType": "LINE",
+                                    "legendPosition": "BOTTOM_LEGEND",
+                                    "axis": [
+                                        {"position": "BOTTOM_AXIS", "title": "Date"},
+                                        {
+                                            "position": "LEFT_AXIS",
+                                            "title": "Rainfall (mm)",
+                                        },
+                                    ],
+                                    "domains": [
+                                        {
+                                            "domain": {
+                                                "sourceRange": {
+                                                    "sources": [
+                                                        {
+                                                            "sheetId": data_id,
+                                                            "startRowIndex": 0,
+                                                            "endRowIndex": (
+                                                                DASHBOARD_MAX_DAILY_ROWS
+                                                                + 1
+                                                            ),
+                                                            "startColumnIndex": start_column,
+                                                            "endColumnIndex": start_column + 1,
+                                                        }
+                                                    ]
+                                                }
+                                            }
+                                        }
+                                    ],
+                                    "series": series,
+                                    "headerCount": 1,
+                                },
+                            },
+                            "position": {
+                                "overlayPosition": {
+                                    "anchorCell": {
+                                        "sheetId": dashboard_id,
+                                        "rowIndex": row_index,
+                                        "columnIndex": column_index,
+                                    },
+                                    "widthPixels": 760,
+                                    "heightPixels": 360,
+                                }
+                            },
+                        }
+                    }
+                }
+            )
+        self._batch_update(requests)
+        return sheets
+
+    def _dashboard_v2_control_values(self) -> tuple[str, str, str, set[str]]:
+        focus, period, frequency = "Malaysia", "1 year", "Daily"
+        selected = set(_DEFAULT_SELECTED)
+        try:
+            response = self._execute(
+                self.service.spreadsheets()
+                .values()
+                .get(
+                    spreadsheetId=self.spreadsheet_id,
+                    range="Dashboard!A1:K9",
+                )
+            )
+        except Exception:
+            return focus, period, frequency, selected
+        rows = response.get("values", [])
+
+        def value(row: int, column: int) -> object:
+            if row >= len(rows) or column >= len(rows[row]):
+                return ""
+            return rows[row][column]
+
+        candidates = (str(value(3, 1)), str(value(4, 1)), str(value(5, 1)))
+        if candidates[0] in ANALYSIS_ORDER:
+            focus = candidates[0]
+        if candidates[1] in {"90 days", "180 days", "1 year", "3 years", "All"}:
+            period = candidates[1]
+        if candidates[2] in {"Daily", "Monthly"}:
+            frequency = candidates[2]
+        detected: set[str] = set()
+        for index, area in enumerate(ANALYSIS_ORDER):
+            row = 3 + index // 4
+            column = 4 + 2 * (index % 4)
+            checked = value(row, column)
+            if checked is True or str(checked).upper() == "TRUE":
+                detected.add(area)
+        if any(value(3 + index // 4, 4 + 2 * (index % 4)) != "" for index in range(19)):
+            selected = detected
+        return focus, period, frequency, selected
+
+    def _dashboard_v2_formula_rows(self) -> list[dict[str, object]]:
+        daily_end = DASHBOARD_MAX_DAILY_ROWS + 1
+        actual_start = _a1_column(1)
+        actual_end = _a1_column(19)
+        ma7_start = _a1_column(20)
+        ma7_end = _a1_column(38)
+        ma30_start = _a1_column(39)
+        ma30_end = _a1_column(57)
+        roll_start = _a1_column(58)
+        roll_end = _a1_column(76)
+        monthly_date = _a1_column(DASHBOARD_MONTHLY_START)
+        monthly_total_start = _a1_column(DASHBOARD_MONTHLY_START + 1)
+        monthly_total_end = _a1_column(DASHBOARD_MONTHLY_START + 19)
+        monthly_normal_start = _a1_column(DASHBOARD_MONTHLY_START + 20)
+        monthly_normal_end = _a1_column(DASHBOARD_MONTHLY_START + 38)
+
+        focus_formula = (
+            f'=FILTER({{$A$2:$A${daily_end},'
+            f'INDEX(${actual_start}$2:${actual_end}${daily_end},0,'
+            f'MATCH(Dashboard!$B$4,${actual_start}$1:${actual_end}$1,0)),'
+            f'INDEX(${ma7_start}$2:${ma7_end}${daily_end},0,'
+            f'MATCH(Dashboard!$B$4&" MA7",${ma7_start}$1:${ma7_end}$1,0)),'
+            f'INDEX(${ma30_start}$2:${ma30_end}${daily_end},0,'
+            f'MATCH(Dashboard!$B$4&" MA30",${ma30_start}$1:${ma30_end}$1,0))}},'
+            f'$A$2:$A${daily_end}<>"",$A$2:$A${daily_end}>=Dashboard!$B$9)'
+        )
+
+        checkbox_by_area = {area: checkbox for area, _label, checkbox in _CHECKBOX_CELLS}
+        daily_date = f"$A$2:$A${daily_end}"
+        monthly_dates = f"${monthly_date}$2:${monthly_date}$500"
+        daily_series = [
+            (
+                f'IF(Dashboard!${checkbox_by_area[area][0]}$'
+                f'{checkbox_by_area[area][1:]},'
+                f'INDEX(${roll_start}$2:${roll_end}${daily_end},0,'
+                f'MATCH("{area} Rolling30",${roll_start}$1:${roll_end}$1,0)),'
+                f'IF({daily_date}<>"",NA(),))'
+            )
+            for area in ANALYSIS_ORDER
+        ]
+        monthly_series = [
+            (
+                f'IF(Dashboard!${checkbox_by_area[area][0]}$'
+                f'{checkbox_by_area[area][1:]},'
+                f'INDEX(${monthly_total_start}$2:${monthly_total_end}$500,0,'
+                f'MATCH("{area} Total",'
+                f'${monthly_total_start}$1:${monthly_total_end}$1,0)),'
+                f'IF({monthly_dates}<>"",NA(),))'
+            )
+            for area in ANALYSIS_ORDER
+        ]
+        daily_compare = (
+            f'FILTER({{{daily_date},{",".join(daily_series)}}},'
+            f'{daily_date}<>"",{daily_date}>=Dashboard!$B$9)'
+        )
+        monthly_compare = (
+            f'FILTER({{{monthly_dates},{",".join(monthly_series)}}},'
+            f'{monthly_dates}<>"",{monthly_dates}>=Dashboard!$B$9)'
+        )
+        comparison_formula = (
+            f'=IF(Dashboard!$B$6="Daily",{daily_compare},{monthly_compare})'
+        )
+        monthly_focus = (
+            f'=FILTER({{{monthly_dates},'
+            f'INDEX(${monthly_total_start}$2:${monthly_total_end}$500,0,'
+            f'MATCH(Dashboard!$B$4&" Total",'
+            f'${monthly_total_start}$1:${monthly_total_end}$1,0)),'
+            f'INDEX(${monthly_normal_start}$2:${monthly_normal_end}$500,0,'
+            f'MATCH(Dashboard!$B$4&" Normal",'
+            f'${monthly_normal_start}$1:${monthly_normal_end}$1,0))}},'
+            f'{monthly_dates}<>"",{monthly_dates}>=Dashboard!$B$9)'
+        )
+        comparison_headers = [
+            "Date",
+            *[
+                f'=IF(Dashboard!{checkbox_by_area[area]},"{area}","")'
+                for area in ANALYSIS_ORDER
+            ],
+        ]
+        return [
+            {
+                "range": (
+                    f"Dashboard_Data!{_a1_column(DASHBOARD_FOCUS_START)}1:"
+                    f"{_a1_column(DASHBOARD_FOCUS_START + 3)}2"
+                ),
+                "values": [
+                    ["Date", "Actual rainfall", "7-day moving average", "30-day moving average"],
+                    [focus_formula],
+                ],
+            },
+            {
+                "range": (
+                    f"Dashboard_Data!{_a1_column(DASHBOARD_COMPARE_START)}1:"
+                    f"{_a1_column(DASHBOARD_COMPARE_START + 19)}2"
+                ),
+                "values": [comparison_headers, [comparison_formula]],
+            },
+            {
+                "range": (
+                    f"Dashboard_Data!{_a1_column(DASHBOARD_MONTH_CHART_START)}1:"
+                    f"{_a1_column(DASHBOARD_MONTH_CHART_START + 2)}2"
+                ),
+                "values": [
+                    ["Month", "Focus area", "Seasonal norm"],
+                    [monthly_focus],
+                ],
+            },
+        ]
+
+    def _dashboard_v2_main_values(
+        self,
+        snapshot: DashboardSnapshot,
+        controls: tuple[str, str, str, set[str]],
+    ) -> list[dict[str, object]]:
+        focus, period, frequency, selected = controls
+        grid = [["" for _column in range(11)] for _row in range(9)]
+        grid[0][0] = "Malaysia Rainfall Dashboard"
+        grid[2][0] = "Controls"
+        grid[2][3] = "Compare areas — tick any number"
+        grid[3][0], grid[3][1] = "Focus area", focus
+        grid[4][0], grid[4][1] = "Period", period
+        grid[5][0], grid[5][1] = "Frequency", frequency
+        grid[6][0] = "Latest valid date"
+        grid[6][1] = (
+            f"=DATE({snapshot.latest_date.year},{snapshot.latest_date.month},"
+            f"{snapshot.latest_date.day})"
+        )
+        grid[7][0] = "Seasonal baseline"
+        grid[7][1] = (
+            f"{snapshot.baseline_start_year}–{snapshot.baseline_end_year} "
+            "(complete months)"
+        )
+        grid[8][0] = "Cutoff date"
+        grid[8][1] = (
+            '=IF(B5="90 days",B7-89,IF(B5="180 days",B7-179,'
+            'IF(B5="1 year",EDATE(B7,-12),IF(B5="3 years",EDATE(B7,-36),'
+            f"DATE({snapshot.baseline_start_year},1,1)))))"
+        )
+        for index, area in enumerate(ANALYSIS_ORDER):
+            row = 3 + index // 4
+            label_column = 3 + 2 * (index % 4)
+            grid[row][label_column] = area
+            grid[row][label_column + 1] = area in selected
+
+        focus_actual = _a1_column(DASHBOARD_FOCUS_START + 1)
+        current_area = _a1_column(DASHBOARD_CURRENT_START)
+        current_mtd = _a1_column(DASHBOARD_CURRENT_START + 1)
+        current_anomaly = _a1_column(DASHBOARD_CURRENT_START + 3)
+        current_ma7 = _a1_column(DASHBOARD_CURRENT_START + 4)
+        current_ma30 = _a1_column(DASHBOARD_CURRENT_START + 5)
+        current_trend = _a1_column(DASHBOARD_CURRENT_START + 6)
+        last_daily = DASHBOARD_MAX_DAILY_ROWS + 1
+
+        def lookup(column: str) -> str:
+            return (
+                f'=IFERROR(INDEX(Dashboard_Data!{column}2:{column}20,'
+                f'MATCH(B4,Dashboard_Data!{current_area}2:{current_area}20,0)),"")'
+            )
+
+        cards = [
+            [
+                "Latest rainfall",
+                "",
+                "7-day average",
+                "",
+                "30-day average",
+                "",
+                "MTD rainfall",
+                "",
+                "MTD anomaly",
+                "",
+                "Recent trend",
+            ],
+            [
+                (
+                    f'=LOOKUP(2,1/(Dashboard_Data!{focus_actual}2:'
+                    f'{focus_actual}{last_daily}<>""),Dashboard_Data!'
+                    f'{focus_actual}2:{focus_actual}{last_daily})'
+                ),
+                "",
+                lookup(current_ma7),
+                "",
+                lookup(current_ma30),
+                "",
+                lookup(current_mtd),
+                "",
+                lookup(current_anomaly),
+                "",
+                lookup(current_trend),
+            ],
+            [
+                "mm/day",
+                "",
+                "mm/day",
+                "",
+                "mm/day",
+                "",
+                "mm month-to-date",
+                "",
+                "actual MTD vs expected MTD",
+                "",
+                "MA7 vs MA30",
+            ],
+        ]
+        current_end = 36 + len(snapshot.ranking_rows)
+        heatmap_end = 58 + len(snapshot.heatmap_rows)
+        return [
+            {"range": "Dashboard!A1:K9", "values": grid},
+            {
+                "range": "Dashboard!M3:Q4",
+                "values": [
+                    ["Comparison chart"],
+                    [
+                        '=IF(COUNTIF(E4:E8,TRUE)+COUNTIF(G4:G8,TRUE)+'
+                        'COUNTIF(I4:I8,TRUE)+COUNTIF(K4:K8,TRUE)=0,'
+                        '"Tick one or more areas to compare",'
+                        'IF(COUNTIF(E4:E8,TRUE)+COUNTIF(G4:G8,TRUE)+'
+                        'COUNTIF(I4:I8,TRUE)+COUNTIF(K4:K8,TRUE)>8,'
+                        '"More than 8 lines may be crowded","Selections update the chart"))'
+                    ],
+                ],
+            },
+            {
+                "range": "Dashboard!A10:K10",
+                "values": [
+                    [
+                        "Anomaly compares month-to-date rainfall with the historical "
+                        "same-day pace; trend compares the latest 7-day average with "
+                        "the 30-day average."
+                    ]
+                ],
+            },
+            {"range": "Dashboard!A11:K13", "values": cards},
+            {
+                "range": f"Dashboard!J36:Q{current_end}",
+                "values": [snapshot.ranking_headers, *snapshot.ranking_rows],
+            },
+            {
+                "range": f"Dashboard!A58:M{heatmap_end}",
+                "values": [snapshot.heatmap_headers, *snapshot.heatmap_rows],
+            },
+        ]
+
+    def refresh_dashboard(self, weights_path: Path) -> DashboardSnapshot:
+        self._ensure_dashboard_v2_structure()
+        controls = self._dashboard_v2_control_values()
         matrix_values, monthly_values, detail_values = self._dashboard_source_values()
         snapshot = build_dashboard_snapshot(
             matrix_values,
             monthly_values,
             detail_values,
+            state_areas=load_state_effective_areas(weights_path),
         )
         if len(snapshot.daily_rows) > DASHBOARD_MAX_DAILY_ROWS:
             raise ValueError("Dashboard daily history exceeds its configured helper range")
@@ -1556,7 +2396,9 @@ class SheetStore:
             f"Dashboard_Data!A1:{_a1_column(DASHBOARD_DATA_COLUMNS - 1)}"
             f"{DASHBOARD_MAX_DAILY_ROWS + 1}"
         )
-        self._values_clear("Dashboard!A1:R100")
+        self._values_clear("Dashboard!A1:Q100")
+        self._values_clear("Regional_Daily_Rainfall!A1:D6001")
+        self._values_clear("Map_Data!A1:J25")
         raw_data = [
             {
                 "range": (
@@ -1573,6 +2415,24 @@ class SheetStore:
                 ),
                 "values": [snapshot.monthly_headers, *snapshot.monthly_rows],
             },
+            {
+                "range": (
+                    f"Dashboard_Data!{_a1_column(DASHBOARD_CURRENT_START)}1:"
+                    f"{_a1_column(DASHBOARD_CURRENT_START + len(snapshot.ranking_headers) - 1)}"
+                    f"{len(snapshot.ranking_rows) + 1}"
+                ),
+                "values": [snapshot.ranking_headers, *snapshot.ranking_rows],
+            },
+            {
+                "range": (
+                    f"Regional_Daily_Rainfall!A1:D{len(snapshot.regional_rows) + 1}"
+                ),
+                "values": [snapshot.regional_headers, *snapshot.regional_rows],
+            },
+            {
+                "range": f"Map_Data!A1:I{len(snapshot.map_rows) + 1}",
+                "values": [snapshot.map_headers, *snapshot.map_rows],
+            },
         ]
         self._execute(
             self.service.spreadsheets()
@@ -1583,8 +2443,8 @@ class SheetStore:
             )
         )
         formula_data = [
-            *self._dashboard_formula_rows(),
-            *self._dashboard_main_values(snapshot, controls),
+            *self._dashboard_v2_formula_rows(),
+            *self._dashboard_v2_main_values(snapshot, controls),
         ]
         self._execute(
             self.service.spreadsheets()

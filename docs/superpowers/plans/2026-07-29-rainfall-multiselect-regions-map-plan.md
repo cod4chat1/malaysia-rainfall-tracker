@@ -82,9 +82,9 @@ Steps:
 
 Files:
 
-- add `scripts/build_map_asset.py`
+- add `tools/generate_map_asset.py`
 - add `apps_script/Code.gs`
-- add `apps_script/Map.html`
+- add `apps_script/MapDialog.html`
 - add `apps_script/appsscript.json`
 - add generated `apps_script/MapPaths.html`
 - add `tests/test_map_asset.py`
@@ -149,4 +149,3 @@ git diff --check
 Apps Script files will also be parsed with Node where their syntax is
 standalone JavaScript. Template HTML will be checked for required element IDs,
 state names, and escaped embedded data.
-
