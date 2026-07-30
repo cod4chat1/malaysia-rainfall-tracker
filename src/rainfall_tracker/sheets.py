@@ -75,6 +75,139 @@ def _rgb(red: int, green: int, blue: int) -> dict[str, float]:
     return {"red": red / 255, "green": green / 255, "blue": blue / 255}
 
 
+def _dashboard_v2_control_requests(dashboard_id: int) -> list[dict[str, Any]]:
+    requests: list[dict[str, Any]] = [
+        {
+            "setDataValidation": {
+                "range": {
+                    "sheetId": dashboard_id,
+                    "startRowIndex": 6,
+                    "endRowIndex": 9,
+                    "startColumnIndex": 1,
+                    "endColumnIndex": 2,
+                }
+            }
+        },
+        {
+            "repeatCell": {
+                "range": {
+                    "sheetId": dashboard_id,
+                    "startRowIndex": 6,
+                    "endRowIndex": 7,
+                    "startColumnIndex": 1,
+                    "endColumnIndex": 2,
+                },
+                "cell": {
+                    "userEnteredFormat": {
+                        "numberFormat": {"type": "DATE", "pattern": "yyyy-mm-dd"}
+                    }
+                },
+                "fields": "userEnteredFormat.numberFormat",
+            }
+        },
+        {
+            "repeatCell": {
+                "range": {
+                    "sheetId": dashboard_id,
+                    "startRowIndex": 8,
+                    "endRowIndex": 9,
+                    "startColumnIndex": 1,
+                    "endColumnIndex": 2,
+                },
+                "cell": {
+                    "userEnteredFormat": {
+                        "numberFormat": {"type": "DATE", "pattern": "yyyy-mm-dd"}
+                    }
+                },
+                "fields": "userEnteredFormat.numberFormat",
+            }
+        },
+        {
+            "updateCells": {
+                "range": {
+                    "sheetId": dashboard_id,
+                    "startRowIndex": 6,
+                    "endRowIndex": 7,
+                    "startColumnIndex": 1,
+                    "endColumnIndex": 2,
+                },
+                "rows": [
+                    {
+                        "values": [
+                            {
+                                "note": (
+                                    "Automatically updated to the newest date with "
+                                    "complete rainfall values for all tracked areas. "
+                                    "Future calendar rows without rainfall are excluded."
+                                )
+                            }
+                        ]
+                    }
+                ],
+                "fields": "note",
+            }
+        },
+    ]
+    validations = (
+        (3, [{"userEnteredValue": area} for area in ANALYSIS_ORDER]),
+        (
+            4,
+            [
+                {"userEnteredValue": value}
+                for value in ("90 days", "180 days", "1 year", "3 years", "All")
+            ],
+        ),
+        (
+            5,
+            [
+                {"userEnteredValue": value}
+                for value in ("Daily", "Monthly")
+            ],
+        ),
+    )
+    for row, values in validations:
+        requests.append(
+            {
+                "setDataValidation": {
+                    "range": {
+                        "sheetId": dashboard_id,
+                        "startRowIndex": row,
+                        "endRowIndex": row + 1,
+                        "startColumnIndex": 1,
+                        "endColumnIndex": 2,
+                    },
+                    "rule": {
+                        "condition": {"type": "ONE_OF_LIST", "values": values},
+                        "strict": True,
+                        "showCustomUi": True,
+                    },
+                }
+            }
+        )
+    for _area, _label_cell, checkbox_cell in _CHECKBOX_CELLS:
+        column = ord(checkbox_cell[0]) - ord("A")
+        row = int(checkbox_cell[1:]) - 1
+        requests.append(
+            {
+                "setDataValidation": {
+                    "range": {
+                        "sheetId": dashboard_id,
+                        "startRowIndex": row,
+                        "endRowIndex": row + 1,
+                        "startColumnIndex": column,
+                        "endColumnIndex": column + 1,
+                    },
+                    "rule": {
+                        "condition": {"type": "BOOLEAN"},
+                        "strict": True,
+                        "showCustomUi": True,
+                    },
+                }
+            }
+        )
+    return requests
+
+
 class SheetStore:
     def __init__(
         self,
@@ -1671,69 +1804,7 @@ class SheetStore:
                 }
             )
 
-        validations = (
-            (
-                3,
-                [
-                    {"userEnteredValue": area}
-                    for area in ANALYSIS_ORDER
-                ],
-            ),
-            (
-                4,
-                [
-                    {"userEnteredValue": value}
-                    for value in ("90 days", "180 days", "1 year", "3 years", "All")
-                ],
-            ),
-            (
-                5,
-                [
-                    {"userEnteredValue": value}
-                    for value in ("Daily", "Monthly")
-                ],
-            ),
-        )
-        for row, values in validations:
-            requests.append(
-                {
-                    "setDataValidation": {
-                        "range": {
-                            "sheetId": dashboard_id,
-                            "startRowIndex": row,
-                            "endRowIndex": row + 1,
-                            "startColumnIndex": 1,
-                            "endColumnIndex": 2,
-                        },
-                        "rule": {
-                            "condition": {"type": "ONE_OF_LIST", "values": values},
-                            "strict": True,
-                            "showCustomUi": True,
-                        },
-                    }
-                }
-            )
-        for _area, _label_cell, checkbox_cell in _CHECKBOX_CELLS:
-            column = ord(checkbox_cell[0]) - ord("A")
-            row = int(checkbox_cell[1:]) - 1
-            requests.append(
-                {
-                    "setDataValidation": {
-                        "range": {
-                            "sheetId": dashboard_id,
-                            "startRowIndex": row,
-                            "endRowIndex": row + 1,
-                            "startColumnIndex": column,
-                            "endColumnIndex": column + 1,
-                        },
-                        "rule": {
-                            "condition": {"type": "BOOLEAN"},
-                            "strict": True,
-                            "showCustomUi": True,
-                        },
-                    }
-                }
-            )
+        requests.extend(_dashboard_v2_control_requests(dashboard_id))
 
         requests.extend(
             [
@@ -2263,7 +2334,7 @@ class SheetStore:
         grid[3][0], grid[3][1] = "Focus area", focus
         grid[4][0], grid[4][1] = "Period", period
         grid[5][0], grid[5][1] = "Frequency", frequency
-        grid[6][0] = "Latest valid date"
+        grid[6][0] = "Latest data date"
         grid[6][1] = (
             f"=DATE({snapshot.latest_date.year},{snapshot.latest_date.month},"
             f"{snapshot.latest_date.day})"
@@ -2385,7 +2456,7 @@ class SheetStore:
         ]
 
     def refresh_dashboard(self, weights_path: Path) -> DashboardSnapshot:
-        self._ensure_dashboard_v2_structure()
+        sheets = self._ensure_dashboard_v2_structure()
         controls = self._dashboard_v2_control_values()
         matrix_values, monthly_values, detail_values = self._dashboard_source_values()
         snapshot = build_dashboard_snapshot(
@@ -2458,6 +2529,8 @@ class SheetStore:
                 body={"valueInputOption": "USER_ENTERED", "data": formula_data},
             )
         )
+        dashboard_id = sheets["Dashboard"]["properties"]["sheetId"]
+        self._batch_update(_dashboard_v2_control_requests(dashboard_id))
         return snapshot
 
     def append_quality(self, values: list[object]) -> None:

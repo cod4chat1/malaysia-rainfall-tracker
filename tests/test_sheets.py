@@ -3,13 +3,51 @@ from datetime import UTC, date, datetime
 from rainfall_tracker.constants import ANALYSIS_ORDER, STATE_ORDER
 from rainfall_tracker.dashboard import DashboardSnapshot
 from rainfall_tracker.records import RainfallRecord
-from rainfall_tracker.sheets import SheetStore, column_letter
+from rainfall_tracker.sheets import (
+    SheetStore,
+    _dashboard_v2_control_requests,
+    column_letter,
+)
 
 
 def test_column_letters():
     assert column_letter(1) == "A"
     assert column_letter(26) == "Z"
     assert column_letter(27) == "AA"
+
+
+def test_dashboard_validations_clear_stale_cells_and_restore_checkboxes():
+    requests = _dashboard_v2_control_requests(123)
+    clear_request = requests[0]["setDataValidation"]
+    assert clear_request["range"] == {
+        "sheetId": 123,
+        "startRowIndex": 6,
+        "endRowIndex": 9,
+        "startColumnIndex": 1,
+        "endColumnIndex": 2,
+    }
+    assert "rule" not in clear_request
+    checkbox_requests = [
+        request
+        for request in requests
+        if request.get("setDataValidation", {}).get("rule", {})
+        .get("condition", {})
+        .get("type")
+        == "BOOLEAN"
+    ]
+    assert len(checkbox_requests) == len(ANALYSIS_ORDER)
+    date_formats = [
+        request["repeatCell"]["cell"]["userEnteredFormat"]["numberFormat"]
+        for request in requests
+        if "repeatCell" in request
+    ]
+    assert date_formats == [
+        {"type": "DATE", "pattern": "yyyy-mm-dd"},
+        {"type": "DATE", "pattern": "yyyy-mm-dd"},
+    ]
+    note_request = next(request for request in requests if "updateCells" in request)
+    note = note_request["updateCells"]["rows"][0]["values"][0]["note"]
+    assert "Future calendar rows without rainfall are excluded" in note
 
 
 class FakeRequest:
