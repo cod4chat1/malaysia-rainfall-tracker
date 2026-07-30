@@ -95,7 +95,7 @@ jobs:
               if last_day >= 16:
                   print(f"second_start={year:04d}-{month:02d}-16", file=output)
           PY
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: steps.dates.outputs.skip != 'true'
       - uses: actions/setup-python@v5
         if: steps.dates.outputs.skip != 'true'
