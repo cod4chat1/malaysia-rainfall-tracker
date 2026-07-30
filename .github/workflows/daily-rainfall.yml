@@ -140,6 +140,8 @@ jobs:
             const details = summary ? [
               `- Requested dates: ${summary.requested_dates ?? 0}`,
               `- Processed dates: ${summary.processed_dates ?? 0}`,
+              `- Preliminary-source dates written: ${summary.preliminary_dates ?? 0}`,
+              `- Final-source dates written or revised: ${summary.final_dates ?? 0}`,
               `- Rows written: ${summary.records ?? 0}`,
               `- Source dates unavailable: ${summary.missing_dates ?? 0}`,
               `- Dates already current/skipped: ${summary.skipped_dates ?? 0}`,

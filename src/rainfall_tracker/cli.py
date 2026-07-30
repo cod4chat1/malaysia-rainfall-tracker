@@ -118,6 +118,13 @@ def _run(args: argparse.Namespace, settings: Settings) -> int:
     )
     weights = load_weights(settings.weights_path, boundary_path=settings.boundary_path)
     records = process_assets(selected, weights, settings)
+    records_by_day = {record.day: record.data_status for record in records}
+    preliminary_dates = sum(
+        status == "CHIRPS_V3_PRELIM_SAT" for status in records_by_day.values()
+    )
+    final_dates = sum(
+        status == "CHIRPS_V3_FINAL_RNL" for status in records_by_day.values()
+    )
     if dry_run:
         print(_records_json(records))
     elif store:
@@ -126,10 +133,6 @@ def _run(args: argparse.Namespace, settings: Settings) -> int:
         if records:
             store.refresh_dashboard(settings.weights_path)
         finished = datetime.now(UTC)
-        records_by_day = {
-            record.day: record.data_status
-            for record in records
-        }
         result = "success" if records else "no_new_data"
         store.append_quality(
             [
@@ -139,14 +142,8 @@ def _run(args: argparse.Namespace, settings: Settings) -> int:
                 min(days).isoformat(),
                 max(days).isoformat(),
                 len({record.day for record in records}),
-                sum(
-                    status == "CHIRPS_V3_PRELIM_SAT"
-                    for status in records_by_day.values()
-                ),
-                sum(
-                    status == "CHIRPS_V3_FINAL_RNL"
-                    for status in records_by_day.values()
-                ),
+                preliminary_dates,
+                final_dates,
                 len(missing),
                 0,
                 store.request_count + 1,
@@ -158,6 +155,8 @@ def _run(args: argparse.Namespace, settings: Settings) -> int:
             {
                 "requested_dates": len(days),
                 "processed_dates": len({record.day for record in records}),
+                "preliminary_dates": preliminary_dates,
+                "final_dates": final_dates,
                 "records": len(records),
                 "missing_dates": len(missing),
                 "skipped_dates": len(skipped),
