@@ -133,6 +133,7 @@ def _run(args: argparse.Namespace, settings: Settings) -> int:
         if records:
             store.refresh_dashboard(settings.weights_path)
         finished = datetime.now(UTC)
+        store.prune_quality_logs(now=finished)
         result = "success" if records else "no_new_data"
         store.append_quality(
             [

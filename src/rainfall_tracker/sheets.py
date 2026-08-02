@@ -36,6 +36,7 @@ DASHBOARD_COMPARE_START = 130
 DASHBOARD_MONTH_CHART_START = 151
 DASHBOARD_CURRENT_START = 155
 DASHBOARD_DATA_COLUMNS = 180
+RUN_LOG_RETENTION_DAYS = 90
 
 _CHECKBOX_CELLS = tuple(
     (
@@ -73,6 +74,36 @@ def _a1_column(zero_based_index: int) -> str:
 
 def _rgb(red: int, green: int, blue: int) -> dict[str, float]:
     return {"red": red / 255, "green": green / 255, "blue": blue / 255}
+
+
+def _quality_row_ranges_to_prune(
+    started_rows: list[list[object]], cutoff: datetime
+) -> list[tuple[int, int]]:
+    old_row_indexes: list[int] = []
+    for sheet_row_index, row in enumerate(started_rows, start=1):
+        if not row or not str(row[0]).strip():
+            continue
+        try:
+            started = datetime.fromisoformat(str(row[0]).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=UTC)
+        if started.astimezone(UTC) < cutoff:
+            old_row_indexes.append(sheet_row_index)
+
+    if not old_row_indexes:
+        return []
+    ranges: list[tuple[int, int]] = []
+    start = previous = old_row_indexes[0]
+    for row_index in old_row_indexes[1:]:
+        if row_index == previous + 1:
+            previous = row_index
+            continue
+        ranges.append((start, previous + 1))
+        start = previous = row_index
+    ranges.append((start, previous + 1))
+    return ranges
 
 
 def _dashboard_v2_control_requests(dashboard_id: int) -> list[dict[str, Any]]:
@@ -2545,3 +2576,55 @@ class SheetStore:
                 body={"values": [values]},
             )
         )
+
+    def prune_quality_logs(
+        self,
+        *,
+        now: datetime | None = None,
+        retention_days: int = RUN_LOG_RETENTION_DAYS,
+    ) -> int:
+        if retention_days <= 0:
+            raise ValueError("Run log retention days must be positive")
+        now = now or datetime.now(UTC)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=UTC)
+        cutoff = now.astimezone(UTC) - timedelta(days=retention_days)
+        response = self._execute(
+            self.service.spreadsheets()
+            .values()
+            .get(
+                spreadsheetId=self.spreadsheet_id,
+                range="Data_Quality!B2:B",
+                majorDimension="ROWS",
+            )
+        )
+        ranges = _quality_row_ranges_to_prune(response.get("values", []), cutoff)
+        if not ranges:
+            return 0
+
+        metadata = self._metadata()
+        quality_sheet = next(
+            (
+                sheet["properties"]
+                for sheet in metadata.get("sheets", [])
+                if sheet["properties"]["title"] == "Data_Quality"
+            ),
+            None,
+        )
+        if quality_sheet is None:
+            raise ValueError("Data_Quality sheet is missing")
+        requests = [
+            {
+                "deleteDimension": {
+                    "range": {
+                        "sheetId": quality_sheet["sheetId"],
+                        "dimension": "ROWS",
+                        "startIndex": start,
+                        "endIndex": end,
+                    }
+                }
+            }
+            for start, end in reversed(ranges)
+        ]
+        self._batch_update(requests)
+        return sum(end - start for start, end in ranges)

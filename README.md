@@ -223,6 +223,11 @@ The workflow:
 6. refreshes the dashboard when new rows are written
 7. records the result in `Data_Quality`
 
+Before each new run entry is written, `Data_Quality` automatically deletes run
+logs older than 90 days. The header and any malformed timestamp rows are kept,
+so unexpected records remain available for investigation without allowing normal
+automation history to grow indefinitely.
+
 No new source data is a successful outcome, not an error.
 
 ### Useful dashboard
