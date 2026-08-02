@@ -6,6 +6,7 @@ from rainfall_tracker.records import RainfallRecord
 from rainfall_tracker.sheets import (
     SheetStore,
     _dashboard_v2_control_requests,
+    _quality_row_ranges_to_prune,
     column_letter,
 )
 
@@ -48,6 +49,22 @@ def test_dashboard_validations_clear_stale_cells_and_restore_checkboxes():
     note_request = next(request for request in requests if "updateCells" in request)
     note = note_request["updateCells"]["rows"][0]["values"][0]["note"]
     assert "Future calendar rows without rainfall are excluded" in note
+
+
+def test_quality_retention_preserves_cutoff_and_malformed_rows():
+    cutoff = datetime(2026, 5, 4, tzinfo=UTC)
+    started_rows = [
+        ["2026-05-03T23:59:59+00:00"],
+        ["2026-05-04T00:00:00+00:00"],
+        ["not-a-timestamp"],
+        ["2026-04-01T00:00:00Z"],
+        ["2026-04-02T00:00:00"],
+    ]
+
+    assert _quality_row_ranges_to_prune(started_rows, cutoff) == [
+        (1, 2),
+        (4, 6),
+    ]
 
 
 class FakeRequest:
@@ -155,6 +172,83 @@ class MigrationService:
 
     def spreadsheets(self):
         return self.spreadsheets_api
+
+
+class RetentionValues:
+    def get(self, **_kwargs):
+        return FakeRequest(
+            {
+                "values": [
+                    ["2026-05-03T23:59:59+00:00"],
+                    ["2026-05-04T00:00:00+00:00"],
+                    ["not-a-timestamp"],
+                    ["2026-04-01T00:00:00Z"],
+                    ["2026-04-02T00:00:00"],
+                ]
+            }
+        )
+
+
+class RetentionSpreadsheets:
+    def __init__(self):
+        self.values_api = RetentionValues()
+        self.batch_bodies = []
+
+    def values(self):
+        return self.values_api
+
+    def get(self, **_kwargs):
+        return FakeRequest(
+            {
+                "sheets": [
+                    {
+                        "properties": {
+                            "title": "Data_Quality",
+                            "sheetId": 99,
+                        }
+                    }
+                ]
+            }
+        )
+
+    def batchUpdate(self, **kwargs):
+        self.batch_bodies.append(kwargs["body"])
+        return FakeRequest()
+
+
+class RetentionService:
+    def __init__(self):
+        self.spreadsheets_api = RetentionSpreadsheets()
+
+    def spreadsheets(self):
+        return self.spreadsheets_api
+
+
+def test_prune_quality_logs_deletes_old_ranges_from_bottom_up():
+    service = RetentionService()
+    store = SheetStore(service, "sheet-id")
+
+    deleted = store.prune_quality_logs(
+        now=datetime(2026, 8, 2, tzinfo=UTC),
+        retention_days=90,
+    )
+
+    assert deleted == 3
+    requests = service.spreadsheets_api.batch_bodies[0]["requests"]
+    assert [request["deleteDimension"]["range"] for request in requests] == [
+        {
+            "sheetId": 99,
+            "dimension": "ROWS",
+            "startIndex": 4,
+            "endIndex": 6,
+        },
+        {
+            "sheetId": 99,
+            "dimension": "ROWS",
+            "startIndex": 1,
+            "endIndex": 2,
+        },
+    ]
 
 
 def test_write_records_builds_one_batched_daily_and_matrix_request():
